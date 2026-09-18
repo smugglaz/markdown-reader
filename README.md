@@ -81,6 +81,7 @@ Actual desktop integration checks (run in a graphical desktop session):
 ```sh
 /usr/bin/python3 tests/native_smoke.py --output work/native-check
 /usr/bin/python3 tests/native_features.py --output work/native-features
+/usr/bin/python3 tests/native_design.py --output work/native-design
 ```
 
 These checks use disposable fixtures and open this project's README without

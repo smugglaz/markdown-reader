@@ -47,7 +47,11 @@ class NativeFeatures(NativeSmoke):
         return "document.querySelector('#toolbar button[aria-label=" + json.dumps(label) + "]').click();"
 
     def choose(self, label, value):
-        return "{const select=document.querySelector('#toolbar select[aria-label=" + json.dumps(label) + "]');select.value=" + json.dumps(value) + ";select.dispatchEvent(new Event('change',{bubbles:true}));}"
+        if label == "Paragraph style":
+            return self.click("Text style") + "document.querySelector('#toolbar [data-style=" + json.dumps(value) + "]').click();"
+        options = {"table": "Table", "row": "Add row", "col": "Add column", "delrow": "Delete row", "delcol": "Delete column"}
+        menu = "Insert" if value == "table" else "Table"
+        return "document.querySelector('#toolbar .menu-trigger[aria-label=" + json.dumps(menu) + "]').click();document.querySelector('#toolbar [role=menuitem][aria-label=" + json.dumps(options[value]) + "]').click();"
 
     def marks(self, doc):
         cases = [("bold", "Bold (Ctrl+B)", "strong"), ("italic", "Italic (Ctrl+I)", "em"),

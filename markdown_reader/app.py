@@ -80,7 +80,7 @@ class ReaderApplication(Adw.Application):
     def do_startup(self):
         Adw.Application.do_startup(self)
         css = Gtk.CssProvider()
-        css.load_from_data(b".reader-status {font-size:12px;opacity:.72;} .reader-banner {padding:8px 14px;background:alpha(@warning_color,.12);} .reader-chrome {padding:0 8px;} .reader-mode {border-radius:8px;} .reader-title {font-weight:600;}")
+        css.load_from_data(b".reader-banner {padding:8px 14px;background:alpha(@warning_color,.12);} .reader-mode {border-radius:8px;} .reader-mode button {min-height:28px;padding:0 13px;font-size:13px;} .reader-mode button:checked {background:@accent_bg_color;color:@accent_fg_color;} .reader-tabs tab {min-width:120px;} .reader-title {font-weight:600;}")
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         actions = {
             "open": (lambda: self.window.choose_open(), ["<Control>o"]),
@@ -620,6 +620,8 @@ class ReaderWindow(Adw.ApplicationWindow):
         self.tabs.connect("notify::selected-page", lambda *_: self.update_controls())
         self.tabs.connect("close-page", self.close_page)
         bar = Adw.TabBar(view=self.tabs, autohide=True)
+        bar.set_expand_tabs(False)
+        bar.add_css_class("reader-tabs")
         root.append(bar)
         self.searchbar = Gtk.SearchBar()
         search_box = Gtk.Box(spacing=8)
@@ -630,7 +632,8 @@ class ReaderWindow(Adw.ApplicationWindow):
         search_box.append(self.search)
         self.searchbar.set_child(search_box)
         self.searchbar.connect_entry(self.search)
-        self.searchbar.set_key_capture_widget(self)
+        # Find opens explicitly with Ctrl+F. Capturing the whole window here
+        # would let ordinary typing open search instead of editing the document.
         root.append(self.searchbar)
         self.stack = Gtk.Stack(vexpand=True)
         self.stack.add_named(self.tabs, "documents")
@@ -638,11 +641,10 @@ class ReaderWindow(Adw.ApplicationWindow):
         self.stack.add_named(self.welcome, "welcome")
         self.stack.set_visible_child_name("welcome")
         root.append(self.stack)
-        self.status_label = Gtk.Label(label="Your documents, beautifully readable.", xalign=0,
-                                      margin_start=16, margin_end=16, margin_top=6, margin_bottom=6,
-                                      css_classes=["reader-status"])
-        root.append(self.status_label)
-        self.set_content(root)
+        self.toast_overlay = Adw.ToastOverlay()
+        self.toast_overlay.set_child(root)
+        self.status_toast = None
+        self.set_content(self.toast_overlay)
         self.update_controls()
 
     @property
@@ -769,7 +771,8 @@ class ReaderWindow(Adw.ApplicationWindow):
         self.save_button.set_visible(bool(doc and (doc.mode == "edit" or doc.dirty)))
         self.save_button.set_sensitive(bool(doc and doc.loaded and doc.editable and not doc.saving and (doc.dirty or not doc.path)))
         self.title_widget.set_title(doc.name if doc else "Markdown Reader")
-        self.title_widget.set_subtitle(str(doc.path.parent) if doc and doc.path else "")
+        self.title_widget.set_subtitle("")
+        self.title_widget.set_tooltip_text(str(doc.path) if doc and doc.path else "Unsaved document" if doc else "Markdown Reader")
         self.set_title((doc.name + " — " if doc else "") + "Markdown Reader")
         self.syncing_controls = False
 
@@ -826,7 +829,14 @@ class ReaderWindow(Adw.ApplicationWindow):
             doc.call("setTheme", self.effective_theme())
 
     def status(self, message):
-        self.status_label.set_text(str(message)[:300])
+        if self.status_toast:
+            self.status_toast.dismiss()
+            self.status_toast = None
+        if not message or message == "Ready":
+            return
+        self.status_toast = Adw.Toast.new(str(message)[:300])
+        self.status_toast.set_timeout(5)
+        self.toast_overlay.add_toast(self.status_toast)
 
     def save_current(self, done=None):
         doc = self.current

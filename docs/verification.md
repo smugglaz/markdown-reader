@@ -3,6 +3,38 @@
 This file records checks actually run on this Ubuntu/GNOME computer. A capability
 described in the design is not evidence that its runtime behaviour was verified.
 
+## Typography and editing update — 18 September 2026
+
+The previous style selector failed a real WebKit check: it stayed on Heading 2
+after moving the selection to an ordinary paragraph. `tests/native_design.py`
+now verifies that the replacement follows the cursor, Normal text preserves
+inline emphasis, Clear formatting removes marks without removing words, Enter
+after a heading creates normal text, and list controls exit back to text while
+preserving neighbouring items.
+
+The list layout check measures bullet, nested, checkbox, and two-digit numbered
+markers against the first text line. Their centres now differ by less than
+0.01 CSS px in the fixture. SVG markers inherit text colour rather than the
+editor's pale border colour. Whole native-window screenshots were inspected for
+the heading-preview menu, light/dark themes, and a 620 px window at 140% text
+size. The test waits for WebKit compositing before capturing GTK frames.
+
+The update passes the existing 69 Python and 11 frontend tests, the TypeScript
+production build, the full native smoke workflow, and native formatting/table
+checks. The original Stocks Data README retained its hash. The current run
+loaded the 100 KB fixture in 1.864 seconds and the first comprehensive fixture
+in 2.178 seconds; timings vary with startup and rendering work.
+
+Both new PDF fixtures were rendered and visually inspected on every page:
+two A4 pages and one Letter page, with selectable text and respectively three
+and one link annotations. Source-preservation, explicit saving, atomic refresh,
+conflict protection, recovery, and export of unsaved edits passed again.
+
+Evidence is in `work/native-design-after`, `work/native-features-design`, and
+`work/native-check-design`. These are isolated test artifacts. Physical mouse
+and keyboard interaction and the native file picker are still manual checks;
+programmatic event handlers do not establish those as passed.
+
 ## Packaging
 
 The final Python suite passes 69 tests: 28 storage, 13 document-controller,
