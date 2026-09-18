@@ -1,17 +1,15 @@
 import {CrepeBuilder} from '@milkdown/crepe/builder';
 import {table} from '@milkdown/crepe/feature/table';
 import {listItem} from '@milkdown/crepe/feature/list-item';
-import {editorViewCtx,commandsCtx,parserCtx,serializerCtx} from '@milkdown/kit/core';
+import {editorViewCtx,parserCtx,serializerCtx} from '@milkdown/kit/core';
 import {callCommand,$prose} from '@milkdown/kit/utils';
 import {Plugin,TextSelection} from '@milkdown/kit/prose/state';
 import {Decoration,DecorationSet} from '@milkdown/kit/prose/view';
-import {deleteColumn,deleteRow} from '@milkdown/kit/prose/tables';
-import {undoCommand,redoCommand} from '@milkdown/kit/plugin/history';
-import {toggleStrongCommand,toggleEmphasisCommand,toggleInlineCodeCommand,toggleLinkCommand,createCodeBlockCommand,wrapInBulletListCommand,wrapInOrderedListCommand,wrapInBlockquoteCommand,insertHrCommand,insertImageCommand,codeBlockSchema,headingSchema,paragraphSchema,setBlockTypeCommand,remarkInlineLinkPlugin,remarkPreserveEmptyLinePlugin} from '@milkdown/kit/preset/commonmark';
-import {toggleStrikethroughCommand,insertTableCommand,addRowAfterCommand,addColAfterCommand} from '@milkdown/kit/preset/gfm';
+import {codeBlockSchema,remarkInlineLinkPlugin,remarkPreserveEmptyLinePlugin} from '@milkdown/kit/preset/commonmark';
+import {createFormattingToolbar} from './toolbar';
 import {splitFrontmatter,assertRoundtrip,canonical,rawHtml,rebaseMarkdown,canonicalEditorModel} from './markdown';
-import {context,send,assetResolved,imageChosen,chooseImage,type LoadPayload,type ScrollState} from './bridge';
-import {protectedBlock,protectedInline,protectRemark,mathRemark,protectedBlockView,protectedInlineView,imageView,codeView,quoteView,setViewMode,initializeMermaid,editSource,renderPending,renderIssues,safeHtml,resolveImages,track,renderStaticDiagram} from './views';
+import {context,send,assetResolved,imageChosen,type LoadPayload,type ScrollState} from './bridge';
+import {protectedBlock,protectedInline,protectRemark,mathRemark,protectedBlockView,protectedInlineView,imageView,codeView,quoteView,setViewMode,initializeMermaid,renderPending,renderIssues,safeHtml,resolveImages,track,renderStaticDiagram} from './views';
 import hljs from 'highlight.js/lib/common';
 import katex from 'katex';
 import '@milkdown/crepe/theme/common/style.css';
@@ -26,27 +24,19 @@ let currentTheme:'light'|'dark'='light';
 
 function status(message:string){notice.textContent=message;notice.hidden=!message;send({type:'status',message});}
 function command(key:any,payload?:any){if(!editor||mode!=='edit')return;editor.editor.action(callCommand(key,payload));editor.editor.action(ctx=>ctx.get(editorViewCtx).focus());}
-function addButton(label:string,title:string,run:()=>void){const b=document.createElement('button');b.type='button';b.textContent=label;b.title=title;b.setAttribute('aria-label',title);b.onmousedown=e=>e.preventDefault();b.onclick=run;toolbar.append(b);return b;}
-function separator(){const line=document.createElement('span');line.className='toolbar-separator';toolbar.append(line);}
 function viewAction(action:(view:any)=>void){editor?.editor.action(ctx=>{const view=ctx.get(editorViewCtx);action(view);view.focus();});}
-
-function createToolbar(){
-  const heading=document.createElement('select');heading.title='Paragraph style';heading.setAttribute('aria-label','Paragraph style');
-  for(let i=0;i<7;i++){const opt=document.createElement('option');opt.value=String(i);opt.textContent=i?`Heading ${i}`:'Paragraph';heading.append(opt);}
-  heading.onchange=()=>editor?.editor.action(ctx=>{const level=Number(heading.value);ctx.get(commandsCtx).call(setBlockTypeCommand.key,{nodeType:level?headingSchema.type(ctx):paragraphSchema.type(ctx),attrs:level?{level}:{}});ctx.get(editorViewCtx).focus();});toolbar.append(heading);
-  separator();addButton('B','Bold (Ctrl+B)',()=>command(toggleStrongCommand.key)).classList.add('bold');addButton('I','Italic (Ctrl+I)',()=>command(toggleEmphasisCommand.key)).classList.add('italic');addButton('S̶','Strikethrough',()=>command(toggleStrikethroughCommand.key));addButton('‹›','Inline code',()=>command(toggleInlineCodeCommand.key));
-  addButton('Link','Insert link',()=>editSource('Insert link','https://',href=>command(toggleLinkCommand.key,{href}),{multiline:false,label:'URL or relative file path'}));
-  separator();addButton('• List','Bullet list',()=>command(wrapInBulletListCommand.key));addButton('1.','Numbered list',()=>command(wrapInOrderedListCommand.key));
-  addButton('☑','Task list',()=>{command(wrapInBulletListCommand.key);viewAction(view=>{const {$from}=view.state.selection;for(let d=$from.depth;d>0;d--){const n=$from.node(d);if(n.type.name==='list_item'){view.dispatch(view.state.tr.setNodeMarkup($from.before(d),undefined,{...n.attrs,checked:n.attrs.checked===null?false:!n.attrs.checked}));break;}}});});
-  addButton('❝','Blockquote',()=>command(wrapInBlockquoteCommand.key));addButton('―','Horizontal rule',()=>command(insertHrCommand.key));addButton('{ }','Code block',()=>command(createCodeBlockCommand.key,''));
-  separator();
-  const inserts=document.createElement('select');inserts.title='Insert and table tools';inserts.setAttribute('aria-label','Insert and table tools');
-  const options=[['','Insert…'],['table','Table'],['row','Table: add row'],['col','Table: add column'],['delrow','Table: delete row'],['delcol','Table: delete column'],['image','Image from file…'],['url','Image from URL…'],['math','Equation…'],['diagram','Mermaid diagram…']];
-  for(const[value,label]of options){const option=document.createElement('option');option.value=value;option.textContent=label;inserts.append(option);}
-  inserts.onchange=async()=>{const action=inserts.value;inserts.value='';if(action==='table')command(insertTableCommand.key,{row:3,col:3});if(action==='row')command(addRowAfterCommand.key);if(action==='col')command(addColAfterCommand.key);if(action==='delrow'||action==='delcol')viewAction(view=>(action==='delrow'?deleteRow:deleteColumn)(view.state,view.dispatch));if(action==='image'){const src=await chooseImage();if(src)command(insertImageCommand.key,{src,alt:''});}if(action==='url')editSource('Insert image','https://',src=>command(insertImageCommand.key,{src,alt:''}),{multiline:false,label:'Image URL'});if(action==='math')editSource('Insert equation','E = mc^2',notation=>viewAction(view=>{view.dispatch(view.state.tr.replaceSelectionWith(view.state.schema.nodes.reader_block.create({kind:'math',notation,raw:`$$\n${notation}\n$$`})))}));if(action==='diagram')editSource('Insert Mermaid diagram','flowchart LR\n  Idea --> Document\n  Document --> Insight',value=>viewAction(view=>view.dispatch(view.state.tr.replaceSelectionWith(view.state.schema.nodes.code_block.create({language:'mermaid',meta:''},view.state.schema.text(value))))));};toolbar.append(inserts);
-  separator();addButton('↶','Undo (Ctrl+Z)',()=>command(undoCommand.key));addButton('↷','Redo (Ctrl+Shift+Z)',()=>command(redoCommand.key));
-}
-createToolbar();
+const formatting=createFormattingToolbar(toolbar,()=>{
+  if(!editor||!loaded)return null;
+  return editor.editor.action(ctx=>ctx.get(editorViewCtx));
+},command);
+const formattingState=$prose(()=>new Plugin({
+  view(view){formatting.sync(view);return {update(next){formatting.sync(next);}};},
+  props:{handleKeyDown(_view,event){
+    if(mode==='edit'&&(event.ctrlKey||event.metaKey)&&event.altKey&&event.code==='Digit0'){
+      event.preventDefault();formatting.normalText();return true;
+    }return false;
+  }},
+}));
 
 const guard=$prose(()=>new Plugin({props:{handlePaste(_view,event){if(Array.from(event.clipboardData?.items??[]).some(item=>item.kind==='file')){status('Use Insert → Image from file to add an existing image. Image paste is not supported.');return true;}return false;},handleDrop(_view,event){if(event.dataTransfer?.files.length){status('Use Insert → Image from file to add an existing image.');return true;}return false;}}}));
 const calloutMarkers=$prose(()=>new Plugin({props:{decorations(state){const decorations:Decoration[]=[];state.doc.descendants((node,pos)=>{if(node.type.name==='blockquote'&&node.firstChild){const marker=node.firstChild.textContent.match(/^\[![^\]]+\][+-]?[^\n]*(?:\n|$)/);if(marker)decorations.push(Decoration.inline(pos+2,pos+2+marker[0].length,{class:'callout-source-marker'}));}});return DecorationSet.create(state.doc,decorations);}}}));
@@ -78,7 +68,7 @@ let pendingLoad:LoadPayload|null=null,loadRunning=false;
 async function load(payload:LoadPayload){pendingLoad=payload;if(loadRunning)return;loadRunning=true;try{while(pendingLoad){const current=pendingLoad;pendingLoad=null;await performLoad(current);}}finally{loadRunning=false;}}
 async function performLoad(payload:LoadPayload){
   const myGeneration=++generation,previous=getState();suppressed=true;loaded=false;clearTimeout(changeTimer);context.documentId=payload.documentId;context.revision=payload.revision;
-  original=payload.markdown;savedMarkdown=payload.savedMarkdown??original;baseline=canonical(savedMarkdown);debug=payload.debug??false;({prefix}=splitFrontmatter(original));const {body}=splitFrontmatter(original);editable=payload.editable;dirty=canonical(original)!==baseline;mode='read';toolbar.hidden=true;document.body.classList.remove('editing');setTheme(payload.theme);setZoom(payload.zoom);setViewMode(false);renderIssues.clear();
+  original=payload.markdown;savedMarkdown=payload.savedMarkdown??original;baseline=canonical(savedMarkdown);debug=payload.debug??false;({prefix}=splitFrontmatter(original));const {body}=splitFrontmatter(original);editable=payload.editable;dirty=canonical(original)!==baseline;mode='read';formatting.close();toolbar.hidden=true;document.body.classList.remove('editing');setTheme(payload.theme);setZoom(payload.zoom);setViewMode(false);renderIssues.clear();
   host.classList.add('loading');host.setAttribute('aria-busy','true');notice.hidden=true;
   if(editor){await editor.destroy();editor=null;}
   if(myGeneration!==generation)return;
@@ -92,7 +82,7 @@ async function performLoad(payload:LoadPayload){
       ctx.update(codeBlockSchema.key,prev=>inner=>{
         const schema=prev(inner);return {...schema,attrs:{...schema.attrs,meta:{default:''}},parseMarkdown:{match:node=>node.type==='code',runner:(state,node,type)=>{state.openNode(type,{language:node.lang??'',meta:node.meta??''});if(node.value)state.addText(String(node.value));state.closeNode();}},toMarkdown:{match:node=>node.type.name==='code_block',runner:(state,node)=>{state.addNode('code',undefined,node.textContent,{lang:node.attrs.language||null,meta:node.attrs.meta||null});}}};
       });
-    }).use(mathRemark).use(protectRemark).use(protectedBlock).use(protectedInline).use(protectedBlockView).use(protectedInlineView).use(imageView).use(codeView).use(quoteView).use(guard).use(calloutMarkers);
+    }).use(mathRemark).use(protectRemark).use(protectedBlock).use(protectedInline).use(protectedBlockView).use(protectedInlineView).use(imageView).use(codeView).use(quoteView).use(guard).use(calloutMarkers).use(formattingState);
     instance.on(api=>api.markdownUpdated(()=>{clearTimeout(changeTimer);if(!suppressed)changeTimer=window.setTimeout(updateDirty,100);}));
     await instance.create();instance.setReadonly(true);
     const serialized=prefix+instance.getMarkdown();
@@ -103,13 +93,13 @@ async function performLoad(payload:LoadPayload){
     await fallback(body);
   }
   if(myGeneration!==generation)return;
-  suppressed=false;loaded=true;host.classList.remove('loading');host.removeAttribute('aria-busy');if(reason){notice.textContent=reason;notice.hidden=false;}
+  suppressed=false;loaded=true;formatting.sync();host.classList.remove('loading');host.removeAttribute('aria-busy');if(reason){notice.textContent=reason;notice.hidden=false;}
   buildOutline();restoreState(payload.scrollState??payload.state??previous);send({type:'loaded',editable,dirty,reason,headings:headings(),issues:[...renderIssues.values()]});if(dirty)send({type:'dirty',dirty,markdown:original});
 }
 
 function setMode(next:'read'|'edit'){
   if(next==='edit'&&!editable){send({type:'status',message:notice.textContent||'This document can only be read.'});return false;}
-  if(!loaded)return false;mode=next;editor?.setReadonly(next==='read');toolbar.hidden=next!=='edit';document.body.classList.toggle('editing',next==='edit');setViewMode(next==='edit');if(next==='edit')editor?.editor.action(ctx=>ctx.get(editorViewCtx).focus());return true;
+  if(!loaded)return false;formatting.close();mode=next;editor?.setReadonly(next==='read');toolbar.hidden=next!=='edit';document.body.classList.toggle('editing',next==='edit');setViewMode(next==='edit');formatting.sync();if(next==='edit')editor?.editor.action(ctx=>ctx.get(editorViewCtx).focus());return true;
 }
 function setTheme(theme:'light'|'dark'){currentTheme=theme;document.documentElement.dataset.theme=theme;initializeMermaid(theme==='dark');if(loaded)setViewMode(mode==='edit');}
 function setZoom(zoom:number){const ratio=zoom>4?zoom/100:zoom;document.documentElement.style.setProperty('--reader-font-size',`${17*Math.min(2.5,Math.max(.6,ratio||1))}px`);}

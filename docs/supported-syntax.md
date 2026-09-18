@@ -11,6 +11,29 @@ after actual edits. Protected or unsupported constructs must not be silently
 discarded; a document that cannot be round-tripped safely stays readable and
 explains its editing limitation.
 
+## Writing and formatting
+
+Choose **Edit** to show the formatting toolbar. Its first control displays the
+style at the cursor: **Normal text**, a heading level, or Code block. A selection
+spanning different styles displays Mixed styles. Open the control to preview
+heading sizes and choose a style.
+
+- **Normal text** (Ctrl+Alt+0) returns a heading or list item to ordinary text.
+  Existing bold, italic, and links remain intact.
+- **Clear formatting** removes inline styles from selected text, or from the
+  current paragraph when there is no selection. It does not change heading or
+  list structure.
+- The bold, italic, code, link, and list controls indicate the cursor's current
+  formatting. Click an active list control to return the selected items to text.
+- Enter after a heading continues with Normal text.
+- **Insert** contains tables, images, quotes, rules, code blocks, equations, and
+  Mermaid diagrams. The **Table** menu appears inside a table and provides row
+  and column actions.
+- Use the arrow keys to navigate an open menu; Escape closes it.
+
+Saving remains explicit with **Save** or Ctrl+S. Short confirmations appear
+temporarily; save conflicts and document errors retain their persistent banners.
+
 Frontmatter and HTML sources are preserved separately from their rendered view.
 Code-fence languages and metadata, footnote associations, and image/link
 destinations must survive edits. A `latex` code fence remains a code example;
