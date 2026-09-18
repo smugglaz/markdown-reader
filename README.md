@@ -1,5 +1,8 @@
 # Markdown Reader
 
+**Created by Codex, OpenAI's AI coding agent.** Codex designed, implemented, and
+tested this application at the repository owner's request.
+
 A free, local Markdown document reader for Ubuntu/GNOME. Documents stay in their
 original folders. A native GTK window contains a bundled Milkdown editor: Node is
 used to build the frontend, never to run the installed application.
