@@ -1,0 +1,35 @@
+{
+  "name": "markdown-reader-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && vite build && node scripts/notices.mjs",
+    "test": "vitest run",
+    "dev": "vite --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@milkdown/crepe": "7.22.1",
+    "@milkdown/kit": "7.22.1",
+    "dompurify": "3.4.15",
+    "highlight.js": "11.11.1",
+    "katex": "0.16.28",
+    "mermaid": "11.17.2",
+    "micromark-util-decode-string": "2.0.1",
+    "rehype-stringify": "10.0.1",
+    "remark-gfm": "4.0.1",
+    "remark-math": "6.0.0",
+    "remark-parse": "11.0.0",
+    "remark-rehype": "11.1.2",
+    "remark-stringify": "11.0.0",
+    "unified": "11.0.5",
+    "unist-util-visit": "5.1.0"
+  },
+  "devDependencies": {
+    "@types/katex": "0.16.8",
+    "@types/node": "24.10.1",
+    "typescript": "5.9.3",
+    "vite": "8.3.0",
+    "vitest": "4.1.11"
+  }
+}

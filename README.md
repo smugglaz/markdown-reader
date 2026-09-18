@@ -1,0 +1,94 @@
+# Markdown Reader
+
+A free, local Markdown document reader for Ubuntu/GNOME. Documents stay in their
+original folders. A native GTK window contains a bundled Milkdown editor: Node is
+used to build the frontend, never to run the installed application.
+
+## Build and launch
+
+Required native packages: Python 3, PyGObject, GTK 4, libadwaita 1, and WebKitGTK 6.
+On Ubuntu, the corresponding packages are `python3-gi`, `gir1.2-gtk-4.0`,
+`gir1.2-adw-1`, and `gir1.2-webkit-6.0`. Node.js and npm are development tools.
+PDF export also requires an installed Chromium or Google Chrome executable.
+Reading and editing use the native WebKit view and do not need that browser.
+
+From this project directory:
+
+```sh
+npm --prefix frontend ci
+npm --prefix frontend run build
+/usr/bin/python3 -m markdown_reader '/absolute/path/document.md'
+```
+
+The application requires a graphical desktop session. Its JavaScript, CSS,
+renderers, and maths fonts are bundled locally. Referenced web images use the network.
+PDF export prints the rendered document through a temporary, isolated local
+browser profile. Styles, fonts, and images are embedded in a static snapshot;
+document scripts and network access are disabled in the print process. This
+preserves clickable PDF links that the native WebKit print API currently omits
+([upstream issue](https://bugs.webkit.org/show_bug.cgi?id=302265)).
+
+## Install for your account
+
+```sh
+/usr/bin/python3 scripts/manage_install.py install
+```
+
+This copies the built app to `~/.local/share/markdown-reader/app`, adds
+`~/.local/bin/markdown-reader`, an icon, and a desktop entry. It registers `.md`
+and `.markdown` support without changing your default application. Respecting
+`XDG_DATA_HOME` moves application data beneath that directory when it is set.
+
+After checking that the app opens and renders your documents correctly:
+
+```sh
+/usr/bin/python3 scripts/manage_install.py set-default
+```
+
+The first default change records both previous Markdown handlers. Reinstallation
+and repeated default changes do not overwrite that recovery record. You can then
+double-click a Markdown document in Files or run `markdown-reader FILE...`.
+
+Remove the application with:
+
+```sh
+~/.local/bin/markdown-reader-uninstall
+```
+
+Uninstall restores a previous handler only when the current handler is still
+Markdown Reader. It removes only unchanged files recorded by the installer.
+Original documents, Obsidian vaults, application settings, and recovery drafts
+are retained. Modified or unknown installation files are retained and reported.
+
+## Isolated packaging check
+
+`--prefix` performs installation and MIME-default changes entirely under the
+given staging directory. It does not change the user's actual MIME defaults.
+
+```sh
+/usr/bin/python3 scripts/manage_install.py --prefix "$PWD/work/staged-install" install
+/usr/bin/python3 scripts/manage_install.py --prefix "$PWD/work/staged-install" set-default
+/usr/bin/python3 scripts/manage_install.py --prefix "$PWD/work/staged-install" uninstall
+/usr/bin/python3 -m unittest discover -s tests -v
+npm --prefix frontend test
+```
+
+Actual desktop integration checks (run in a graphical desktop session):
+
+```sh
+/usr/bin/python3 tests/native_smoke.py --output work/native-check
+/usr/bin/python3 tests/native_features.py --output work/native-features
+```
+
+These checks use disposable fixtures and open this project's README without
+changing it. Set `MR_TEST_DOCUMENT=/absolute/path/example.md` to also check a
+different existing document. Test outputs and recovery state stay under `work/`.
+
+## Behaviour and verification
+
+See [supported syntax](docs/supported-syntax.md), [privacy and data safety](docs/privacy.md),
+and [verification status](docs/verification.md) for native runtime test results,
+PDF checks, and the limits of automated interaction checks.
+
+The project is MIT licensed. Third-party components retain their own licenses;
+the frontend build includes dependency notices with its distributable assets.
