@@ -3,6 +3,31 @@
 This file records checks actually run on this Ubuntu/GNOME computer. A capability
 described in the design is not evidence that its runtime behaviour was verified.
 
+## Document-state and appearance polish — 23 September 2026
+
+The native `tests/native_polish.py` run uses the installed GTK/libadwaita/WebKit
+runtime with disposable files. It verifies the single-tab close control,
+two→one→Welcome behavior, current compact recents, disabled document commands on
+Welcome, selected theme and width actions, the changing Text Size menu label,
+Find count/no-match/clear-on-switch, Read/Edit width, and dirty close Save,
+Cancel, and Discard. Untouched source-file hashes stayed unchanged. The 620 px, 200% text check
+found no page-level horizontal scroll; a fresh WebKit snapshot and whole-window
+capture show the heading and paragraph wrapping. Earlier whole-window frames
+after a resize were stale, so the check requests a WebKit snapshot before the
+native capture. Light/dark callouts, links, and code were visually inspected.
+Calculated contrast against their actual surfaces is at least 5.47:1 for the
+checked link, callout-title, task-success, and code-comment colors.
+
+The 49 frontend and 72 Python tests and production TypeScript build passed.
+The complete native smoke run also passed the 100 KB local render target and
+exported a two-page A4 PDF. Both pages were rendered and inspected: the paper
+is white and the table, code, image, equation, Mermaid diagram, and links are
+legible. The installed 177-file application payload matched the tested source
+and build byte for byte. Both Markdown MIME defaults still point to Markdown
+Reader. Physical Files double-click, screen reader announcements, and manual
+mouse or keyboard focus remain separate user checks. The foreground performance
+benchmarks were not rerun; their latest results remain below.
+
 ## Readability update — 23 September 2026
 
 The native readability pass uses disposable documents and the installed GTK 4,

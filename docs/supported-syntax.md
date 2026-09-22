@@ -43,6 +43,19 @@ for reading and **Expand** for a larger view. Tables and diagrams can also be
 expanded. **Copy** and **Original** continue to use the original code text.
 Wrapping and expanding change only the view, not the Markdown file.
 
+The window menu offers **Reading Width → Comfortable / Wide**. Comfortable
+keeps prose in a focused column; Wide gives tables and technical layouts more
+room. The choice applies in both Read and Edit and persists across launches.
+**Text Size** shows the current percentage. **Appearance** follows the system
+or uses Light or Dark, with the selected choice marked in the menu. These view
+settings do not edit the document or change its PDF page size.
+
+One or more open documents always have visible tabs. Close a tab with its × or
+**Close Document** (Ctrl+W); closing the final tab shows Welcome and current
+recent files. A dot on a tab means unsaved edits. The close dialog offers Save,
+Discard, and Cancel. Find shows a match count or “No matches”; switching tabs
+closes Find so its query cannot appear to describe the wrong document.
+
 Frontmatter and HTML sources are preserved separately from their rendered view.
 Code-fence languages and metadata, footnote associations, and image/link
 destinations must survive edits. A `latex` code fence remains a code example;

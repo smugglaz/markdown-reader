@@ -14,6 +14,13 @@ preparation finishes. Returning to Read shows unsaved edits; switching back to
 Edit retains the same editor, document model, and Undo/Redo history. Save retains
 the document-preservation and external-change checks.
 
+The document tab stays visible even when it is the only open tab. Its close
+button or **Close Document** (Ctrl+W) returns to Welcome without quitting.
+Modified tabs show an unsaved mark, and closing one offers Save, Discard, or
+Cancel. **Appearance**, **Reading Width**, and **Text Size** are in the window
+menu. Comfortable width is the default; Wide gives technical documents more
+room without changing their Markdown or PDF layout.
+
 ## Build and launch
 
 Required native packages: Python 3, PyGObject, GTK 4, libadwaita 1, and WebKitGTK 6.
@@ -90,6 +97,7 @@ Actual desktop integration checks (run in a graphical desktop session):
 /usr/bin/python3 tests/native_features.py --output work/native-features
 /usr/bin/python3 tests/native_design.py --output work/native-design
 /usr/bin/python3 tests/native_readability.py --output work/native-readability
+/usr/bin/python3 tests/native_polish.py --output work/native-polish
 /usr/bin/python3 tests/native_performance_correctness.py --output work/performance-correctness
 /usr/bin/python3 tests/native_read_first.py --output work/native-read-first
 /usr/bin/python3 tests/native_overflow.py --output work/native-overflow
@@ -109,6 +117,8 @@ without asserting that every target passed.
 See [supported syntax](docs/supported-syntax.md), [privacy and data safety](docs/privacy.md),
 and [verification status](docs/verification.md) for native runtime test results,
 PDF checks, and the limits of automated interaction checks.
+The [design references](docs/design-references.md) explain the Mac Markdown
+applications considered for the reader's visual direction.
 See [performance evidence](docs/performance.md) for measured responsiveness,
 the benchmark procedure, and remaining delays. The measured 100 KB foreground
 run opened in 1,449 ms; first entry into Edit took 1,790 ms. Editor preparation

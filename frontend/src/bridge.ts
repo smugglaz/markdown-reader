@@ -1,4 +1,4 @@
-export type LoadPayload={documentId:string;revision:number;markdown:string;savedMarkdown?:string;editable:boolean;theme:'light'|'dark';zoom:number;state?:ScrollState;scrollState?:ScrollState;debug?:boolean};
+export type LoadPayload={documentId:string;revision:number;markdown:string;savedMarkdown?:string;editable:boolean;theme:'light'|'dark';zoom:number;width?:'comfortable'|'wide';state?:ScrollState;scrollState?:ScrollState;debug?:boolean};
 export type ScrollState={scrollY:number;anchor?:string;offset?:number};
 export const context={documentId:'',revision:0};
 let requestCounter=0;

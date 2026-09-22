@@ -95,9 +95,6 @@ class ReaderApplication(Adw.Application):
             "zoom-out": (lambda: self.window.zoom_by(-.1), ["<Control>minus"]),
             "zoom-reset": (lambda: self.window.zoom_by(0, reset=True), ["<Control>0"]),
             "outline": (lambda: self.window.toggle_outline(), ["<Control><Shift>o"]),
-            "theme-system": (lambda: self.window.set_theme("system"), []),
-            "theme-light": (lambda: self.window.set_theme("light"), []),
-            "theme-dark": (lambda: self.window.set_theme("dark"), []),
             "about": (lambda: self.window.about(), []),
             "quit": (lambda: self.window.close(), ["<Control>q"]),
         }
@@ -106,6 +103,12 @@ class ReaderApplication(Adw.Application):
             action.connect("activate", lambda a, p, cb=callback: cb())
             self.add_action(action)
             self.set_accels_for_action("app." + name, accelerators)
+        for name, initial, callback in (("theme", "system", "set_theme"),
+                                        ("reading-width", "comfortable", "set_width_mode")):
+            action = Gio.SimpleAction.new_stateful(name, GLib.VariantType.new("s"), GLib.Variant("s", initial))
+            action.connect("change-state", lambda a, value, method=callback:
+                           getattr(self.ensure_window(), method)(value.get_string()))
+            self.add_action(action)
 
     def ensure_window(self):
         if not self.window:
@@ -241,6 +244,9 @@ class Document:
         self.web = WebKit.WebView(web_context=self.app.web_context,
                                  network_session=self.app.network_session,
                                  user_content_manager=manager, settings=settings)
+        find_controller = self.web.get_find_controller()
+        find_controller.connect("found-text", lambda _controller, count: self.window.find_result(self, count))
+        find_controller.connect("failed-to-find-text", lambda _controller: self.window.find_result(self, 0))
         self.web.set_vexpand(True)
         self.web.connect("decide-policy", self._policy)
         self.web.connect("web-process-terminated", self._terminated)
@@ -401,6 +407,7 @@ class Document:
                             "markdown": self.text, "editable": not self.snapshot or self.snapshot.editable,
                             "savedMarkdown": self.snapshot.text if self.snapshot else "",
                             "theme": self.window.effective_theme(), "zoom": self.window.zoom,
+                            "width": self.window.width_mode,
                             "scrollState": self.anchor, "filename": self.name})
 
     def set_mode(self, mode):
@@ -622,6 +629,10 @@ class ReaderWindow(Adw.ApplicationWindow):
         self.session = app.store.load_session()
         self.zoom = float(self.session.get("zoom", 1.0))
         self.theme = self.session.get("theme", "system")
+        self.width_mode = self.session.get("width", "comfortable")
+        if self.width_mode not in ("comfortable", "wide"):
+            self.width_mode = "comfortable"
+        self.app.lookup_action("reading-width").set_state(GLib.Variant("s", self.width_mode))
         self.recents = self.session.get("recent", [])
         self.closing = False
         self.checking_close = False
@@ -650,17 +661,25 @@ class ReaderWindow(Adw.ApplicationWindow):
         self.save_button = Gtk.Button(label="Save", action_name="app.save", css_classes=["suggested-action"])
         header.pack_end(self.save_button)
         menu = Gio.Menu()
-        for label, action in [("New Document", "new"), ("Save As…", "save-as"), ("Export PDF…", "export"),
+        for label, action in [("New Document", "new"), ("Close Document", "close-tab"),
+                              ("Save As…", "save-as"), ("Export PDF…", "export"),
                               ("Find…", "find"), ("Toggle Outline", "outline")]:
             menu.append(label, "app." + action)
         zoom_menu = Gio.Menu()
         for label, action in [("Zoom In", "zoom-in"), ("Zoom Out", "zoom-out"), ("Actual Size", "zoom-reset")]:
             zoom_menu.append(label, "app." + action)
-        menu.append_section(None, zoom_menu)
+        self.menu = menu
+        self.zoom_menu = zoom_menu
+        self.zoom_menu_index = menu.get_n_items()
+        menu.append_submenu(f"Text Size · {round(self.zoom * 100)}%", zoom_menu)
         themes = Gio.Menu()
         for label, name in [("Follow System", "system"), ("Light", "light"), ("Dark", "dark")]:
-            themes.append(label, "app.theme-" + name)
+            themes.append(label, "app.theme::" + name)
         menu.append_submenu("Appearance", themes)
+        widths = Gio.Menu()
+        widths.append("Comfortable", "app.reading-width::comfortable")
+        widths.append("Wide", "app.reading-width::wide")
+        menu.append_submenu("Reading Width", widths)
         menu.append("About Markdown Reader", "app.about")
         menu_button = Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu)
         header.pack_end(menu_button)
@@ -673,21 +692,29 @@ class ReaderWindow(Adw.ApplicationWindow):
         root.append(header)
         self.tabs = Adw.TabView()
         self.tabs.set_vexpand(True)
-        self.tabs.connect("notify::selected-page", lambda *_: self.update_controls())
+        self.tabs.connect("notify::selected-page", lambda *_: self.selected_page_changed())
         self.tabs.connect("close-page", self.close_page)
-        bar = Adw.TabBar(view=self.tabs, autohide=True)
+        bar = Adw.TabBar(view=self.tabs, autohide=False)
         bar.set_expand_tabs(False)
         bar.add_css_class("reader-tabs")
+        bar.set_visible(False)
+        self.tab_bar = bar
         root.append(bar)
         self.searchbar = Gtk.SearchBar()
         search_box = Gtk.Box(spacing=8)
         self.search = Gtk.SearchEntry(hexpand=True, placeholder_text="Find in document")
         self.search.connect("search-changed", self.search_changed)
+        self.find_document = None
+        self.search_results = Gtk.Label(css_classes=["dim-label"])
+        self.search_results.set_visible(False)
         self.search.connect("next-match", lambda *_: self.current.web.get_find_controller().search_next() if self.current else None)
         self.search.connect("previous-match", lambda *_: self.current.web.get_find_controller().search_previous() if self.current else None)
         search_box.append(self.search)
+        search_box.append(self.search_results)
         self.searchbar.set_child(search_box)
         self.searchbar.connect_entry(self.search)
+        self.searchbar.connect("notify::search-mode-enabled", lambda bar, *_:
+                               self.dismiss_find() if not bar.get_search_mode() and self.find_document else None)
         # Find opens explicitly with Ctrl+F. Capturing the whole window here
         # would let ordinary typing open search instead of editing the document.
         root.append(self.searchbar)
@@ -717,14 +744,22 @@ class ReaderWindow(Adw.ApplicationWindow):
         buttons.append(Gtk.Button(label="Open Document…", action_name="app.open", css_classes=["suggested-action", "pill"]))
         buttons.append(Gtk.Button(label="New Document", action_name="app.new", css_classes=["pill"]))
         outer.append(buttons)
+        self.recent_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        outer.append(self.recent_list)
+        self.refresh_recents()
+        return outer
+
+    def refresh_recents(self):
+        while child := self.recent_list.get_first_child():
+            self.recent_list.remove(child)
         for path in self.recents[:6]:
             if not Path(path).is_file():
                 continue
-            button = Gtk.Button(label=Path(path).name + "  ·  " + str(Path(path).parent), css_classes=["flat"])
+            location = Path(path)
+            button = Gtk.Button(label=location.name + "  ·  " + location.parent.name, css_classes=["flat"])
             button.set_tooltip_text(path)
             button.connect("clicked", lambda btn, p=path: self.open_path(p))
-            outer.append(button)
-        return outer
+            self.recent_list.append(button)
 
     def restore_session(self):
         drafts = self.app.store.load_drafts()
@@ -809,7 +844,15 @@ class ReaderWindow(Adw.ApplicationWindow):
             if doc.path and sum(other.name == name for other in self.documents) > 1:
                 name += " · " + doc.path.parent.name
             doc.page.set_title(("● " if doc.dirty else "") + name)
-            doc.page.set_tooltip(str(doc.path) if doc.path else "Unsaved document")
+            path = str(doc.path) if doc.path else "Untitled document"
+            doc.page.set_tooltip(("Unsaved changes · " if doc.dirty else "") + path)
+            doc.page.update_property([Gtk.AccessibleProperty.DESCRIPTION],
+                                     [("Unsaved changes. " if doc.dirty else "Saved. ") + path])
+        self.update_controls()
+
+    def selected_page_changed(self):
+        if self.find_document is not self.current:
+            self.dismiss_find()
         self.update_controls()
 
     def update_controls(self):
@@ -817,6 +860,7 @@ class ReaderWindow(Adw.ApplicationWindow):
             return
         doc = self.current
         self.syncing_controls = True
+        self.tab_bar.set_visible(bool(doc))
         self.mode_box.set_visible(bool(doc))
         self.outline_button.set_visible(bool(doc))
         self.find_button.set_visible(bool(doc))
@@ -829,10 +873,23 @@ class ReaderWindow(Adw.ApplicationWindow):
             self.read_button.set_active(True)
         self.save_button.set_visible(bool(doc and (doc.mode == "edit" or doc.dirty)))
         self.save_button.set_sensitive(bool(doc and doc.loaded and doc.editable and not doc.saving and not doc.mode_busy and (doc.dirty or not doc.path)))
-        self.title_widget.set_title(doc.name if doc else "Markdown Reader")
+        self.title_widget.set_title("Markdown Reader")
         self.title_widget.set_subtitle("Preparing editor…" if doc and doc.mode_busy else "")
         self.title_widget.set_tooltip_text(str(doc.path) if doc and doc.path else "Unsaved document" if doc else "Markdown Reader")
         self.set_title((doc.name + " — " if doc else "") + "Markdown Reader")
+        available = bool(doc and doc.loaded and not doc.saving and not doc.mode_busy)
+        enabled = {
+            "close-tab": bool(doc and not doc.saving),
+            "save": bool(available and doc.editable and (doc.dirty or not doc.path)),
+            "save-as": bool(available and doc.editable),
+            "export": available,
+            "find": available,
+            "edit": bool(available and doc.editable),
+            "outline": available,
+            "zoom-in": bool(doc), "zoom-out": bool(doc), "zoom-reset": bool(doc),
+        }
+        for name, value in enabled.items():
+            self.app.lookup_action(name).set_enabled(value)
         self.syncing_controls = False
 
     def mode_changed(self, mode):
@@ -848,17 +905,39 @@ class ReaderWindow(Adw.ApplicationWindow):
 
     def show_find(self):
         if self.current:
+            self.find_document = self.current
             self.searchbar.set_search_mode(True)
             self.search.grab_focus()
+
+    def dismiss_find(self):
+        previous = self.find_document
+        self.find_document = None
+        if previous and not previous.closed:
+            previous.web.get_find_controller().search_finish()
+        self.searchbar.set_search_mode(False)
+        self.search.set_text("")
+        self.search_results.set_text("")
+        self.search_results.set_visible(False)
+
+    def find_result(self, doc, count):
+        if doc is not self.current or doc is not self.find_document or not self.search.get_text():
+            return
+        self.search_results.set_text("No matches" if not count else f"{count} match" + ("" if count == 1 else "es"))
+        self.search_results.set_visible(True)
 
     def search_changed(self, entry):
         if not self.current:
             return
         controller = self.current.web.get_find_controller()
         if entry.get_text():
+            self.find_document = self.current
+            self.search_results.set_text("Searching…")
+            self.search_results.set_visible(True)
             controller.search(entry.get_text(), WebKit.FindOptions.CASE_INSENSITIVE | WebKit.FindOptions.WRAP_AROUND, 1000)
         else:
             controller.search_finish()
+            self.search_results.set_text("")
+            self.search_results.set_visible(False)
 
     def toggle_outline(self):
         if self.current:
@@ -866,17 +945,35 @@ class ReaderWindow(Adw.ApplicationWindow):
 
     def zoom_by(self, delta, reset=False):
         self.zoom = 1.0 if reset else max(.75, min(2.0, round(self.zoom + delta, 2)))
+        self.menu.remove(self.zoom_menu_index)
+        self.menu.insert_submenu(self.zoom_menu_index, f"Text Size · {round(self.zoom * 100)}%", self.zoom_menu)
         for doc in self.documents:
             doc.call("setZoom", self.zoom)
         self.status(f"Text size: {round(self.zoom * 100)}%")
         self.persist()
 
     def set_theme(self, theme):
+        if theme not in ("system", "light", "dark"):
+            return
         self.theme = theme
+        action = self.app.lookup_action("theme")
+        if action:
+            action.set_state(GLib.Variant("s", theme))
         modes = {"system": Adw.ColorScheme.DEFAULT, "light": Adw.ColorScheme.FORCE_LIGHT, "dark": Adw.ColorScheme.FORCE_DARK}
         Adw.StyleManager.get_default().set_color_scheme(modes.get(theme, Adw.ColorScheme.DEFAULT))
         if hasattr(self, "documents"):
             self.theme_changed()
+        if hasattr(self, "tabs"):
+            self.persist()
+
+    def set_width_mode(self, mode):
+        if mode not in ("comfortable", "wide"):
+            return
+        self.width_mode = mode
+        self.app.lookup_action("reading-width").set_state(GLib.Variant("s", mode))
+        for doc in self.documents:
+            doc.call("setWidth", mode)
+        self.persist()
 
     def effective_theme(self):
         return "dark" if Adw.StyleManager.get_default().get_dark() else "light"
@@ -1229,6 +1326,8 @@ class ReaderWindow(Adw.ApplicationWindow):
         if doc.closed:
             return
         if confirm:
+            if self.find_document is doc:
+                self.dismiss_find()
             doc.cleanup()
             self.app.store.remove_draft(doc.id)
             self.documents.remove(doc)
@@ -1237,6 +1336,9 @@ class ReaderWindow(Adw.ApplicationWindow):
                 doc.web.set_sensitive(True)
         self.tabs.close_page_finish(doc.page, confirm)
         if not self.documents:
+            self.dismiss_find()
+            self.status("Ready")
+            self.refresh_recents()
             self.stack.set_visible_child_name("welcome")
         self.update_titles()
         self.persist()
@@ -1306,7 +1408,8 @@ class ReaderWindow(Adw.ApplicationWindow):
             self.app.store.save_session({"tabs": [{"id": d.id, "path": str(d.path) if d.path else None,
                 "anchor": d.anchor} for d in self.documents if d.path or d.dirty],
                 "selected": str(self.current.path) if self.current and self.current.path else None,
-                "recent": self.recents, "theme": self.theme, "zoom": self.zoom})
+                "recent": self.recents, "theme": self.theme, "zoom": self.zoom,
+                "width": self.width_mode})
         except Exception as exc:
             self.status(f"Could not remember session: {exc}")
 

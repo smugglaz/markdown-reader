@@ -59,6 +59,14 @@ function setTheme(theme:'light'|'dark'){
   refreshReadingTheme(host);
 }
 function setZoom(zoom:number){if(payload)payload.zoom=zoom;const ratio=zoom>4?zoom/100:zoom;document.documentElement.style.setProperty('--reader-font-size',`${17*Math.min(2.5,Math.max(.6,ratio||1))}px`);syncOutlineLayout();}
+function setWidth(width:'comfortable'|'wide'){
+  const next=width==='wide'?'wide':'comfortable';
+  const position=loaded?(activeEditor()?editing!.editingReader.getState():getState()):null;
+  if(payload)payload.width=next;
+  document.documentElement.dataset.width=next;
+  syncOutlineLayout();
+  if(position){if(activeEditor())editing!.editingReader.restoreState(position);else restoreState(position);}
+}
 async function renderCurrent(){
   if(!payload)return;
   const source=payload.markdown;
@@ -77,7 +85,7 @@ async function load(next:LoadPayload){
   loaded=false;busy=false;mode=desiredMode='read';editable=next.editable;
   dirty=next.markdown!==(next.savedMarkdown??next.markdown)&&canonical(next.markdown)!==canonical(next.savedMarkdown??next.markdown);
   timings={};notice.hidden=true;document.body.classList.remove('editing');app.replaceChildren(readingRoot);
-  setTheme(next.theme);setZoom(next.zoom);host.setAttribute('aria-busy','true');
+  setTheme(next.theme);setZoom(next.zoom);setWidth(next.width??'comfortable');host.setAttribute('aria-busy','true');
   try{await renderCurrent();}catch(error){host.replaceChildren();const pre=document.createElement('pre');pre.textContent=next.markdown;host.append(pre);editable=false;notice.textContent=`This document could not be rendered: ${(error as Error).message}`;notice.hidden=false;}
   if(mine!==generation)return;
   loaded=true;host.removeAttribute('aria-busy');timings['read render']=Math.round(performance.now()-started);timings['load total']=timings['read render'];
@@ -169,7 +177,7 @@ document.addEventListener('keydown',event=>{if(!readingRoot.isConnected)return;i
 let scrollTimer=0;window.addEventListener('scroll',()=>{if(!readingRoot.isConnected)return;clearTimeout(scrollTimer);scrollTimer=window.setTimeout(()=>send({type:'scroll',state:getState()}),180);},{passive:true});
 window.addEventListener('error',event=>send({type:'status',message:`Renderer error: ${event.message}`}));
 window.reader={
-  load,setMode,setTheme,setZoom,assetResolved,imageChosen,getState,restoreState,prepareExport,scrollToHeading,
+  load,setMode,setTheme,setZoom,setWidth,assetResolved,imageChosen,getState,restoreState,prepareExport,scrollToHeading,
   exportFinished(){document.body.classList.remove('preparing-export');if(activeEditor())editing!.editingReader.exportFinished();},
   serialize(requestId:string){
     if(editorGeneration===generation&&editing)return editing.editingReader.serialize(requestId);
