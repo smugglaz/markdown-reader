@@ -1,6 +1,7 @@
 import {rawHtml} from './markdown';
 import {send} from './bridge';
 import {safeHtml,resolveImages,renderStaticDiagram,renderIssues,track} from './rendering';
+import {parseAnnotatedTree} from './annotated-tree';
 import './reading.css';
 
 const diagramSources=new WeakMap<HTMLElement,string>();
@@ -102,17 +103,34 @@ function renderCode(article:HTMLElement):void {
     const block=document.createElement('div');block.className='code-block';
     const bar=document.createElement('div');bar.className='code-bar';
     const label=document.createElement('span');label.textContent=language||'Code';
+    const actions=document.createElement('span');actions.className='code-actions';
     const copy=document.createElement('button');copy.type='button';copy.textContent='Copy';copy.title='Copy code';
     copy.onclick=async()=>{
       try{await navigator.clipboard.writeText(source);}catch{send({type:'copyText',text:source});}
       copy.textContent='Copied';setTimeout(()=>{copy.textContent='Copy';},1300);
     };
-    bar.append(label,copy);pre.replaceWith(block);block.append(bar);
+    actions.append(copy);bar.append(label,actions);pre.replaceWith(block);block.append(bar);
     if(language.toLowerCase()==='mermaid'){
       const preview=document.createElement('div');preview.className='diagram-preview';preview.textContent='Rendering diagram…';
       block.append(preview);diagramSources.set(preview,source);renderStaticDiagram(preview,source);
     }else {
-      block.append(pre);if(language)highlights.push({code,language,source});
+      const entries=parseAnnotatedTree(source,language);
+      if(entries){
+        block.classList.add('annotated-tree-block');label.textContent='File layout';
+        const tree=document.createElement('div');tree.className='annotated-tree';
+        tree.setAttribute('role','list');tree.setAttribute('aria-label','Annotated file tree');
+        for(const entry of entries){
+          const row=document.createElement('div');row.className='annotated-tree-row';row.setAttribute('role','listitem');
+          row.style.setProperty('--tree-depth',String(entry.depth));
+          const path=document.createElement('span');path.className='annotated-tree-path';path.textContent=entry.path;
+          const description=document.createElement('span');description.className='annotated-tree-description';description.textContent=entry.description;
+          row.append(path,description);tree.append(row);
+        }
+        const original=document.createElement('button');original.type='button';original.textContent='Original';original.title='Show the exact Markdown code block';
+        original.onclick=()=>{const showOriginal=!tree.hidden;tree.hidden=showOriginal;pre.hidden=!showOriginal;original.textContent=showOriginal?'Layout':'Original';};
+        actions.prepend(original);pre.hidden=true;block.append(tree,pre);
+      }else block.append(pre);
+      if(language&&!entries)highlights.push({code,language,source});
     }
   }
   if(highlights.length)track(import('highlight.js/lib/common').then(({default:hljs})=>{

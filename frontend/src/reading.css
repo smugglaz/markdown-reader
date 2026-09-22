@@ -13,6 +13,16 @@
 .reading-document .reading-table table{table-layout:auto;margin:0}
 .reading-document .code-block pre{margin:0;white-space:pre;overflow-x:auto;max-width:100%}
 .reading-document .code-block pre code{white-space:inherit}
+.reading-document .annotated-tree-block{container-type:inline-size}
+.reading-document .code-actions{display:flex;align-items:center;gap:4px}
+.reading-document .annotated-tree{padding:14px 20px 16px}
+.reading-document .annotated-tree-row{display:grid;grid-template-columns:minmax(0,32%) minmax(0,1fr);gap:16px;align-items:start;padding:3px 0;line-height:1.5}
+.reading-document .annotated-tree-path{min-width:0;padding-left:calc(var(--tree-depth)*1.15em);font:normal .82em/1.5 var(--crepe-font-code);overflow-wrap:anywhere}
+.reading-document .annotated-tree-description{min-width:0;font-size:.86em;overflow-wrap:anywhere}
+@container (max-width: 620px){
+  .reading-document .annotated-tree-row{grid-template-columns:minmax(0,1fr);gap:0;padding:5px 0}
+  .reading-document .annotated-tree-description{padding-left:calc(var(--tree-depth)*1.1em + 1.15em)}
+}
 .reading-document .reading-math{white-space:normal}
 .reading-document .reading-math.render-error{white-space:pre-wrap}
 .reading-document blockquote.reading-callout{border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:7px;background:var(--accent-wash);color:var(--text);padding:13px 18px}
@@ -24,6 +34,8 @@
 .reading-document .footnotes p{margin-bottom:.5em}
 .reading-document sup>a{font-size:.85em;text-decoration:none}
 @media print{
+  .reading-document .annotated-tree-block{break-inside:auto}
+  .reading-document .annotated-tree-row{break-inside:avoid}
   .reading-document .reading-table{overflow:visible}
   .reading-document .reading-table table{table-layout:fixed}
   .reading-document .code-block pre{white-space:pre-wrap;overflow-wrap:anywhere;overflow:visible}
