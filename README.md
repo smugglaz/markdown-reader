@@ -89,6 +89,7 @@ Actual desktop integration checks (run in a graphical desktop session):
 /usr/bin/python3 tests/native_smoke.py --output work/native-check
 /usr/bin/python3 tests/native_features.py --output work/native-features
 /usr/bin/python3 tests/native_design.py --output work/native-design
+/usr/bin/python3 tests/native_readability.py --output work/native-readability
 /usr/bin/python3 tests/native_performance_correctness.py --output work/performance-correctness
 /usr/bin/python3 tests/native_read_first.py --output work/native-read-first
 /usr/bin/python3 tests/native_overflow.py --output work/native-overflow

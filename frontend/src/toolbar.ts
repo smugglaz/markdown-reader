@@ -53,7 +53,7 @@ export function createFormattingToolbar(root:HTMLElement, getView:()=>EditorView
   }
   function item(panel:HTMLElement,label:string,run:()=>void,detail?:string){
     const b=document.createElement('button');b.type='button';b.setAttribute('role','menuitem');b.setAttribute('aria-label',label);b.textContent=label;
-    if(detail){const hint=document.createElement('span');hint.className='menu-hint';hint.textContent=detail;b.append(hint);}
+    if(detail){const hint=document.createElement('span');hint.className='menu-hint';hint.textContent=detail;b.append(hint);b.classList.add('has-detail');}
     b.onmousedown=e=>e.preventDefault();b.onclick=()=>{closeMenus();run();};panel.append(b);return b;
   }
   // Lifting uses the editor's list transform, preserving siblings and nested content.
@@ -61,9 +61,15 @@ export function createFormattingToolbar(root:HTMLElement, getView:()=>EditorView
   function style(level:number){action(view=>{leaveList(view);setBlockType(view.state.schema.nodes[level?'heading':'paragraph'],level?{level}:undefined)(view.state,view.dispatch);});}
   const textGroup=group('Text style');
   const styles=menu(textGroup,'Text style');styles.trigger.id='text-style';
+  const descriptions=['Body of the document','Main title','Section','Subsection','Heading level 4','Heading level 5','Heading level 6'];
   for(let level=0;level<7;level++){
     const b=item(styles.panel,level?`Heading ${level}`:'Normal text',()=>style(level),level?'': 'Ctrl+Alt+0');
     b.dataset.style=String(level);b.className=level?`style-preview heading-${level}`:'style-preview normal';b.setAttribute('role','menuitemradio');b.setAttribute('aria-checked','false');
+    const name=document.createElement('span');name.textContent=level?`Heading ${level}`:'Normal text';
+    const description=document.createElement('small');description.textContent=descriptions[level];
+    b.replaceChildren(name,description);
+    b.setAttribute('aria-label',`${name.textContent}: ${description.textContent}`);
+    if(level===4)b.classList.add('advanced-style');
   }
   const marks=group('Text formatting');
   button(marks,'Bold (Ctrl+B)','bold',()=>command(toggleStrongCommand.key),'strong');
@@ -71,7 +77,8 @@ export function createFormattingToolbar(root:HTMLElement, getView:()=>EditorView
   button(marks,'Strikethrough','strike',()=>command(toggleStrikethroughCommand.key),'strike_through');
   button(marks,'Inline code','code',()=>command(toggleInlineCodeCommand.key),'inlineCode');
   button(marks,'Insert link','link',()=>editSource('Insert link','https://',href=>command(toggleLinkCommand.key,{href}),{multiline:false,label:'URL or relative file path'}),'link');
-  button(marks,'Clear formatting','clear',()=>action(view=>{const {from,to,empty,$from}=view.state.selection;if(empty&&!$from.parent.isTextblock)return;const tr=view.state.tr.removeMark(empty?$from.start():from,empty?$from.end():to).setStoredMarks([]);view.dispatch(tr); }));
+  const clearFormatting=()=>action(view=>{const {from,to,empty,$from}=view.state.selection;if(empty&&!$from.parent.isTextblock)return;const tr=view.state.tr.removeMark(empty?$from.start():from,empty?$from.end():to).setStoredMarks([]);view.dispatch(tr); });
+  button(marks,'Clear formatting','clear',clearFormatting);
   const lists=group('Lists');
   function list(kind:'bullet'|'ordered'|'task') {action(view=>{
     const {$from}=view.state.selection;let current='';
@@ -94,6 +101,12 @@ export function createFormattingToolbar(root:HTMLElement, getView:()=>EditorView
   item(table.panel,'Add row',()=>command(addRowAfterCommand.key));item(table.panel,'Add column',()=>command(addColAfterCommand.key));
   item(table.panel,'Delete row',()=>action(view=>{deleteRow(view.state,view.dispatch);}));item(table.panel,'Delete column',()=>action(view=>{deleteColumn(view.state,view.dispatch);}));
   tableGroup.hidden=true;
+  const moreGroup=group('More formatting');moreGroup.classList.add('toolbar-more');
+  const more=menu(moreGroup,'More');
+  item(more.panel,'Clear inline formatting',clearFormatting,'Removes bold, italic, links and inline code');
+  for(const label of ['Strikethrough','Inline code','Insert link','Numbered list','Task list'])
+    item(more.panel,label,()=>root.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)?.click());
+  const moreTable=item(more.panel,'Table tools',()=>table.trigger.click());
   const history=group('History');history.classList.add('toolbar-history');
   const undoButton=button(history,'Undo (Ctrl+Z)','undo',()=>action(view=>{undo(view.state,view.dispatch);}));
   const redoButton=button(history,'Redo (Ctrl+Shift+Z)','redo',()=>action(view=>{redo(view.state,view.dispatch);}));
@@ -107,7 +120,7 @@ export function createFormattingToolbar(root:HTMLElement, getView:()=>EditorView
     for(const [name,b] of toggles){const mark=state.schema.marks[name];if(mark)b.setAttribute('aria-pressed',String(empty?!!mark.isInSet(state.storedMarks??$from.marks()):state.doc.rangeHasMark(from,to,mark)));}
     let currentList='',insideTable=false;for(let d=$from.depth;d>0;d--){const n=$from.node(d);if(n.type.name==='table')insideTable=true;if(!currentList&&n.type.name==='list_item')currentList=n.attrs.checked!=null?'task':$from.node(d-1).type.name==='ordered_list'?'ordered':'bullet';}
     for(const name of ['bullet','ordered','task'])toggles.get(name)!.setAttribute('aria-pressed',String(currentList===name));
-    tableGroup.hidden=!insideTable;undoButton.disabled=!undo(state);redoButton.disabled=!redo(state);
+    tableGroup.hidden=!insideTable;moreTable.hidden=!insideTable;undoButton.disabled=!undo(state);redoButton.disabled=!redo(state);
   }
   document.addEventListener('mousedown',e=>{if(!root.contains(e.target as Node))closeMenus();});
   document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMenus();});

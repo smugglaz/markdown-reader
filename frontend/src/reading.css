@@ -11,17 +11,25 @@
 .reading-document .reading-table{max-width:100%;overflow-x:auto;margin:1.5em 0}
 .reading-document .reading-table:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .reading-document .reading-table table{table-layout:auto;margin:0}
+.reading-document .reading-table .table-expand{display:block;margin:0 0 7px auto;padding:4px 8px;border:0;border-radius:5px;background:var(--wash);color:var(--muted);font-size:12px}
 .reading-document .code-block pre{margin:0;white-space:pre;overflow-x:auto;max-width:100%}
+.reading-document .code-block pre.wrapped{white-space:pre-wrap;overflow-wrap:anywhere}
 .reading-document .code-block pre code{white-space:inherit}
 .reading-document .annotated-tree-block{container-type:inline-size}
 .reading-document .code-actions{display:flex;align-items:center;gap:4px}
 .reading-document .annotated-tree{padding:14px 20px 16px}
-.reading-document .annotated-tree-row{display:grid;grid-template-columns:minmax(0,32%) minmax(0,1fr);gap:16px;align-items:start;padding:3px 0;line-height:1.5}
-.reading-document .annotated-tree-path{min-width:0;padding-left:calc(var(--tree-depth)*1.15em);font:normal .82em/1.5 var(--crepe-font-code);overflow-wrap:anywhere}
-.reading-document .annotated-tree-description{min-width:0;font-size:.86em;overflow-wrap:anywhere}
+.reading-document .annotated-tree-head{display:grid;grid-template-columns:minmax(0,38%) minmax(0,1fr);gap:16px;margin:0 20px;padding:12px 0 0;border-bottom:1px solid var(--line);color:var(--muted);font-size:12px;font-weight:650}
+.reading-document .annotated-tree-row{display:grid;grid-template-columns:minmax(0,38%) minmax(0,1fr);gap:16px;align-items:start;padding:3px 0;line-height:1.5}
+.reading-document .annotated-tree-row.folder{margin-top:10px;border-top:1px solid var(--line);padding-top:10px}
+.reading-document .annotated-tree-row.folder:first-child{margin-top:0;border:0;padding-top:3px}
+.reading-document .annotated-tree-path{min-width:0;padding-left:calc(var(--tree-depth)*1.15em);font:normal .88em/1.5 var(--crepe-font-code);overflow-wrap:anywhere}
+.reading-document .annotated-tree-row.folder .annotated-tree-path{font-weight:700}
+.reading-document .annotated-tree-description{min-width:0;font-size:.96em;overflow-wrap:anywhere}
 @container (max-width: 620px){
   .reading-document .annotated-tree-row{grid-template-columns:minmax(0,1fr);gap:0;padding:5px 0}
   .reading-document .annotated-tree-description{padding-left:calc(var(--tree-depth)*1.1em + 1.15em)}
+  .reading-document .annotated-tree-head{grid-template-columns:minmax(0,1fr)}
+  .reading-document .annotated-tree-head span:last-child{display:none}
 }
 .reading-document .reading-math{white-space:normal}
 .reading-document .reading-math.render-error{white-space:pre-wrap}

@@ -635,6 +635,7 @@ class ReaderWindow(Adw.ApplicationWindow):
         self.title_widget = title
         header.set_title_widget(title)
         open_button = Gtk.Button(icon_name="document-open-symbolic", tooltip_text="Open document (Ctrl+O)")
+        self.open_button = open_button
         open_button.set_action_name("app.open")
         header.pack_start(open_button)
         self.mode_box = Gtk.Box(css_classes=["linked", "reader-mode"])
@@ -664,8 +665,10 @@ class ReaderWindow(Adw.ApplicationWindow):
         menu_button = Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu)
         header.pack_end(menu_button)
         outline = Gtk.Button(icon_name="view-list-symbolic", tooltip_text="Toggle outline (Ctrl+Shift+O)", action_name="app.outline")
+        self.outline_button = outline
         header.pack_end(outline)
         find = Gtk.Button(icon_name="edit-find-symbolic", tooltip_text="Find (Ctrl+F)", action_name="app.find")
+        self.find_button = find
         header.pack_end(find)
         root.append(header)
         self.tabs = Adw.TabView()
@@ -814,6 +817,9 @@ class ReaderWindow(Adw.ApplicationWindow):
             return
         doc = self.current
         self.syncing_controls = True
+        self.mode_box.set_visible(bool(doc))
+        self.outline_button.set_visible(bool(doc))
+        self.find_button.set_visible(bool(doc))
         self.mode_box.set_sensitive(bool(doc and doc.loaded))
         self.edit_button.set_sensitive(bool(doc and doc.loaded and doc.editable and not doc.mode_busy and not doc.saving))
         self.edit_button.set_tooltip_text(doc.edit_reason if doc and not doc.editable else "Edit document (Ctrl+E)")

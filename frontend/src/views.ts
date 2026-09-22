@@ -139,7 +139,12 @@ export const quoteView=$view(blockquoteSchema.node,()=> (node)=>{
     // a changed marker's default when an agent replaces this reused NodeView.
     if(nextMarker!==foldingMarker){foldingMarker=nextMarker;folded=nextMarker==='-';}
     dom.classList.toggle('callout',!!match);label.hidden=!match;dom.classList.toggle('callout-reading',!editing);
-    if(match){dom.dataset.callout=match[1].toLowerCase();label.textContent=`${match[2]?(folded?'▸ ':'▾ '):''}${match[3]||match[1].charAt(0).toUpperCase()+match[1].slice(1).toLowerCase()}`;label.disabled=!match[2];content.hidden=!editing&&!!foldingMarker&&folded;}else content.hidden=false;
+    if(match){
+      const type=match[1].charAt(0).toUpperCase()+match[1].slice(1).toLowerCase().replace(/-/g,' ');
+      const title=match[3]?.trim(),visible=title&&title.toLowerCase()!==type.toLowerCase()?`${type} · ${title}`:type;
+      dom.dataset.callout=match[1].toLowerCase();label.textContent=`${match[2]?(folded?'▸ ':'▾ '):''}${visible}`;
+      label.disabled=!match[2];content.hidden=!editing&&!!foldingMarker&&folded;
+    }else content.hidden=false;
   };
   label.onclick=()=>{folded=!folded;render();};render();modeListeners.add(render);
   return {dom,contentDOM:content,update(next){if(next.type!==current.type)return false;if(next.eq(current))return true;current=next;render();return true},ignoreMutation:mutation=>(mutation.type==='attributes'&&mutation.target===content&&mutation.attributeName==='hidden')||!content.contains(mutation.target),stopEvent:event=>label.contains(event.target as globalThis.Node),destroy(){modeListeners.delete(render)}};

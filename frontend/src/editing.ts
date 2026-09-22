@@ -12,6 +12,7 @@ import {equivalentEditorDocuments} from './model-equality';
 import {anchorViews,updateDocumentAnchors,headingAnchor,paragraphAnchor} from './anchors';
 import {createCachedSerializer} from './serialization';
 import {createFormattingToolbar} from './toolbar';
+import {setupOutline,syncOutlineLayout,toggleOutline,updateOutlineCurrent} from './outline-ui';
 import {splitFrontmatter,assertRoundtrip,canonical,primeCanonical,rawHtml,rebaseMarkdown} from './markdown';
 import {context,send,assetResolved,imageChosen,type LoadPayload,type ScrollState} from './bridge';
 import {protectedBlock,protectedInline,protectRemark,mathRemark,protectedBlockView,protectedInlineView,imageView,codeView,quoteView,setViewMode,initializeMermaid,renderPending,renderIssues,safeHtml,resolveImages,track,renderStaticDiagram} from './views';
@@ -22,6 +23,7 @@ export const editingRoot=document.createElement('div');
 const app=editingRoot;
 app.innerHTML='<nav id="outline" aria-label="Document outline"><div class="outline-title">CONTENTS</div><div id="outline-items"></div></nav><main id="main"><div id="toolbar" role="toolbar" aria-label="Formatting" hidden></div><div id="notice" role="status" hidden></div><div id="page"><details id="metadata" hidden><summary>Document metadata</summary><pre></pre></details><div id="editor"></div></div></main>';
 const toolbar=app.querySelector<HTMLDivElement>('#toolbar')!,notice=app.querySelector<HTMLDivElement>('#notice')!,host=app.querySelector<HTMLDivElement>('#editor')!,metadata=app.querySelector<HTMLDetailsElement>('#metadata')!;
+setupOutline(app);
 let editor:CrepeBuilder|null=null,original='',savedMarkdown='',prefix='',editable=false,mode:'read'|'edit'='read',suppressed=true,generation=0,dirty=false,loaded=false,changeTimer=0,outlineTimer=0,debug=false;
 let currentTheme:'light'|'dark'='light';
 const timings:Record<string,number>={};
@@ -143,7 +145,7 @@ function setMode(next:'read'|'edit'){
   editor?.setReadonly(next==='read');measure('mode readonly',start);refreshListViewMode();formatting.sync();measure('mode toolbar',start);if(next==='edit')editor?.editor.action(ctx=>ctx.get(editorViewCtx).focus());measure('mode',start);return true;
 }
 function setTheme(theme:'light'|'dark'){currentTheme=theme;document.documentElement.dataset.theme=theme;initializeMermaid(theme==='dark');if(loaded)setViewMode(mode==='edit');}
-function setZoom(zoom:number){const ratio=zoom>4?zoom/100:zoom;document.documentElement.style.setProperty('--reader-font-size',`${17*Math.min(2.5,Math.max(.6,ratio||1))}px`);}
+function setZoom(zoom:number){const ratio=zoom>4?zoom/100:zoom;document.documentElement.style.setProperty('--reader-font-size',`${17*Math.min(2.5,Math.max(.6,ratio||1))}px`);syncOutlineLayout();}
 function headings(){return Array.from(host.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6')).map(h=>({level:Number(h.tagName.slice(1)),text:h.textContent??'',id:h.id}));}
 function buildOutline(){
   const items=app.querySelector('#outline-items')!,fragment=document.createDocumentFragment();
@@ -157,6 +159,7 @@ function buildOutline(){
   }
   if(!fragment.childElementCount){const empty=document.createElement('p');empty.textContent='Headings appear here.';fragment.append(empty);}
   items.replaceChildren(fragment);
+  updateOutlineCurrent(app);
 }
 function getState():ScrollState{let anchor:HTMLElement|undefined;for(const h of host.querySelectorAll<HTMLElement>('[data-reader-anchor]')){if(h.getBoundingClientRect().top<=100)anchor=h;else break;}return {scrollY:window.scrollY,anchor:anchor?.id,offset:anchor?anchor.getBoundingClientRect().top:undefined};}
 function restoreState(state:ScrollState){if(!editingRoot.isConnected)return;requestAnimationFrame(()=>{const target=state.anchor?document.getElementById(state.anchor):null;if(target)window.scrollTo({top:window.scrollY+target.getBoundingClientRect().top-(state.offset??0)});else window.scrollTo({top:state.scrollY??0});});}
@@ -201,7 +204,7 @@ export const editingReader={
   testInsertText(text:string,flush=true){if(!debug)throw new Error('Test operations are disabled.');if(mode!=='edit')throw new Error('Enter Edit mode first.');viewAction(view=>view.dispatch(view.state.tr.insertText(text,Math.max(1,view.state.doc.content.size-1))));if(flush)updateDirty();},
   testSelectText(text:string){if(!debug)throw new Error('Test operations are disabled.');let found=false;viewAction(view=>{view.state.doc.descendants((node:any,pos:number)=>{if(found||!node.isText)return;const index=node.text.indexOf(text);if(index>=0){view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc,pos+index,pos+index+text.length)));found=true;}})});if(!found)throw new Error(`Text not found: ${text}`);return true;},
   testSelectRange(from:number,to:number=from){if(!debug)throw new Error('Test operations are disabled.');viewAction(view=>view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc,from,to))));},
-  toggleOutline(){document.body.classList.toggle('show-outline');},
+  toggleOutline(){toggleOutline(app);},
   find(text:string){return window.find?.(text,false,false,true,false,false,false);},
   performanceReport(){return {...timings};},getState,restoreState,requestState(requestId:string){send({type:'state',requestId,state:getState()});},
   // A read-only diagnostic surface helps native integration checks inspect actual WebKit state.

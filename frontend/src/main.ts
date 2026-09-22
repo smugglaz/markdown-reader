@@ -2,6 +2,7 @@ import {context,send,assetResolved,imageChosen,type LoadPayload,type ScrollState
 import {splitFrontmatter,canonical,rebaseMarkdown} from './markdown';
 import {headingAnchor,paragraphAnchor,updateDocumentAnchors} from './document-anchors';
 import {renderReading,refreshReadingTheme} from './reading';
+import {setupOutline,syncOutlineLayout,toggleOutline,updateOutlineCurrent} from './outline-ui';
 import {initializeMermaid,renderPending,renderIssues,resolveImages,track} from './rendering';
 import '@milkdown/crepe/theme/common/style.css';
 import 'katex/dist/katex.min.css';
@@ -15,6 +16,7 @@ const readingRoot=document.createElement('div');
 readingRoot.innerHTML='<nav id="outline" aria-label="Document outline"><div class="outline-title">CONTENTS</div><div id="outline-items"></div></nav><main id="main"><div id="notice" role="status" hidden></div><div id="page"><details id="metadata" hidden><summary>Document metadata</summary><pre></pre></details><div id="editor"></div></div></main>';
 const host=readingRoot.querySelector<HTMLDivElement>('#editor')!,notice=readingRoot.querySelector<HTMLDivElement>('#notice')!,metadata=readingRoot.querySelector<HTMLDetailsElement>('#metadata')!;
 app.replaceChildren(readingRoot);
+setupOutline(readingRoot);
 let payload:LoadPayload|null=null,generation=0,loaded=false,busy=false,dirty=false,editable=false;
 let mode:'read'|'edit'='read',desiredMode:'read'|'edit'='read';
 let renderedSource:string|null=null,editorGeneration=-1,modeToken=0;
@@ -37,6 +39,7 @@ function buildOutline(){
   for(const h of host.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6')){const link=document.createElement('a');link.href='#'+h.id;link.textContent=h.textContent;link.style.paddingLeft=`${12+(Number(h.tagName.slice(1))-1)*12}px`;fragment.append(link);}
   if(!fragment.childElementCount){const empty=document.createElement('p');empty.textContent='Headings appear here.';fragment.append(empty);}
   readingRoot.querySelector('#outline-items')!.replaceChildren(fragment);
+  updateOutlineCurrent(readingRoot);
 }
 function getState():ScrollState {
   if(activeEditor()){
@@ -55,7 +58,7 @@ function setTheme(theme:'light'|'dark'){
   if(editing)editing.editingReader.setTheme(theme);
   refreshReadingTheme(host);
 }
-function setZoom(zoom:number){if(payload)payload.zoom=zoom;const ratio=zoom>4?zoom/100:zoom;document.documentElement.style.setProperty('--reader-font-size',`${17*Math.min(2.5,Math.max(.6,ratio||1))}px`);}
+function setZoom(zoom:number){if(payload)payload.zoom=zoom;const ratio=zoom>4?zoom/100:zoom;document.documentElement.style.setProperty('--reader-font-size',`${17*Math.min(2.5,Math.max(.6,ratio||1))}px`);syncOutlineLayout();}
 async function renderCurrent(){
   if(!payload)return;
   const source=payload.markdown;
@@ -67,6 +70,7 @@ async function renderCurrent(){
 }
 async function load(next:LoadPayload){
   const started=performance.now(),previous=getState(),mine=++generation;++modeToken;
+  document.querySelectorAll<HTMLDialogElement>('dialog.reader-focus-dialog[open]').forEach(dialog=>dialog.close());
   editing?.editingReader.invalidate();editorGeneration=-1;
   document.querySelectorAll<HTMLDialogElement>('.source-dialog[open]').forEach(dialog=>dialog.close());
   payload={...next};context.documentId=next.documentId;context.revision=next.revision;
@@ -110,6 +114,7 @@ async function ensureEditor(){
 }
 async function setMode(next:'read'|'edit'){
   if(!loaded||!payload)return false;
+  document.querySelectorAll<HTMLDialogElement>('dialog.reader-focus-dialog[open]').forEach(dialog=>dialog.close());
   desiredMode=next;const token=++modeToken,mine=generation,position=getState(),started=performance.now();
   if(next==='read'){
     if(activeEditor())synchronizeBuffer();
@@ -186,7 +191,7 @@ window.reader={
   testInsertText(text:string,flush=true){if(!activeEditor()||busy)throw new Error('Enter Edit mode first.');return editing!.editingReader.testInsertText(text,flush);},
   testSelectText(text:string){if(!activeEditor()||busy)throw new Error('Enter Edit mode first.');return editing!.editingReader.testSelectText(text);},
   testSelectRange(from:number,to=from){if(!activeEditor()||busy)throw new Error('Enter Edit mode first.');return editing!.editingReader.testSelectRange(from,to);},
-  toggleOutline(){document.body.classList.toggle('show-outline');},find(text:string){return window.find?.(text,false,false,true,false,false,false);},
+  toggleOutline(){toggleOutline(activeEditor()?editing!.editingRoot:readingRoot);},find(text:string){return window.find?.(text,false,false,true,false,false,false);},
   requestState(requestId:string){send({type:'state',requestId,state:getState()});},
   performanceReport(){return {...(editorGeneration===generation?editing?.editingReader.performanceReport():{}),...timings};},
   inspect(){const current=editorGeneration===generation?editing?.editingReader.inspect():null;return {documentId:context.documentId,revision:context.revision,loaded,editable,mode,busy,editorCreated:!!editing,editorReady:editorGeneration===generation,dirty:current?.dirty??dirty,markdown:current?.markdown??payload?.markdown??'',headings:headings(),issues:[...renderIssues.entries()].filter(([e])=>e.isConnected).map(([,v])=>v),text:(activeEditor()?editing!.editingRoot:host).textContent,theme:payload?.theme};},

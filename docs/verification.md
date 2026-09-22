@@ -3,6 +3,23 @@
 This file records checks actually run on this Ubuntu/GNOME computer. A capability
 described in the design is not evidence that its runtime behaviour was verified.
 
+## Readability update — 23 September 2026
+
+The native readability pass uses disposable documents and the installed GTK 4,
+libadwaita, and WebKit 6 runtime. It checks matching Read/Edit table alignment
+and borders, position retained across Read/Edit, explanatory format labels,
+custom callout types, legible dark code comments, single-row compact toolbar,
+Contents as an overlay at 620 px and 140% text, source-preserving code wrap and
+expanded views, and source hashes. It also checks the actual Stocks Data README
+at wide and narrow sizes. Evidence and screenshots are in the native test outputs.
+
+The 49 frontend and 72 Python tests, TypeScript build, native design check,
+native feature check, focused readability check, file-layout check, and complete
+native smoke workflow passed for this update. The smoke workflow exercised
+explicit Save, conflicts, drafts, and PDF export. The visual captures were
+inspected. Physical keyboard, clipboard, Files double-click, and manual colour
+perception remain outside this automated pass.
+
 ## Integrated reading-first update — 23 September 2026
 
 The reading-first implementation is now in the application source. Initial Read

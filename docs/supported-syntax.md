@@ -16,13 +16,15 @@ explains its editing limitation.
 Choose **Edit** to show the formatting toolbar. Its first control displays the
 style at the cursor: **Normal text**, a heading level, or Code block. A selection
 spanning different styles displays Mixed styles. Open the control to preview
-heading sizes and choose a style.
+heading sizes and choose a style. Its descriptions distinguish body text, the
+main title, sections, and subsections. At narrow widths, common controls remain
+visible and **More** holds less frequent formatting commands.
 
 - **Normal text** (Ctrl+Alt+0) returns a heading or list item to ordinary text.
   Existing bold, italic, and links remain intact.
 - **Clear formatting** removes inline styles from selected text, or from the
   current paragraph when there is no selection. It does not change heading or
-  list structure.
+  list structure. The **More** menu calls this **Clear inline formatting**.
 - The bold, italic, code, link, and list controls indicate the cursor's current
   formatting. Click an active list control to return the selected items to text.
 - Enter after a heading continues with Normal text.
@@ -33,6 +35,13 @@ heading sizes and choose a style.
 
 Saving remains explicit with **Save** or Ctrl+S. Short confirmations appear
 temporarily; save conflicts and document errors retain their persistent banners.
+
+In **Read**, select **Contents** to navigate headings. In a narrow window or at
+larger text sizes it opens over the page; **Close** and Escape return to the
+document. The current section is marked. Long code blocks offer **Wrap lines**
+for reading and **Expand** for a larger view. Tables and diagrams can also be
+expanded. **Copy** and **Original** continue to use the original code text.
+Wrapping and expanding change only the view, not the Markdown file.
 
 Frontmatter and HTML sources are preserved separately from their rendered view.
 Code-fence languages and metadata, footnote associations, and image/link

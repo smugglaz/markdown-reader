@@ -50,9 +50,11 @@ function renderCallouts(article:HTMLElement):void {
     const content=document.createElement('div');content.className='reading-callout-content';
     content.append(...Array.from(quote.childNodes));
     const label=document.createElement(callout.fold?'button':'div');label.className='callout-label';
+    const kindLabel=callout.kind.charAt(0).toUpperCase()+callout.kind.slice(1).replace(/-/g,' ');
+    const visibleLabel=callout.title.toLowerCase()===kindLabel.toLowerCase()?kindLabel:`${kindLabel} · ${callout.title}`;
     let folded=callout.fold==='-';
     const update=()=>{
-      label.textContent=`${callout.fold?(folded?'▸ ':'▾ '):''}${callout.title}`;
+      label.textContent=`${callout.fold?(folded?'▸ ':'▾ '):''}${visibleLabel}`;
       content.hidden=folded;
       if(callout.fold)label.setAttribute('aria-expanded',String(!folded));
     };
@@ -60,6 +62,20 @@ function renderCallouts(article:HTMLElement):void {
     quote.classList.add('callout','reading-callout');quote.dataset.callout=callout.kind;
     quote.append(label,content);update();
   }
+}
+
+function expandReadingElement(title:string,element:HTMLElement):void {
+  const dialog=document.createElement('dialog');dialog.className='reader-focus-dialog reading-document';
+  dialog.setAttribute('aria-label',title);
+  const heading=document.createElement('div');heading.className='reader-focus-heading';
+  const name=document.createElement('strong');name.textContent=title;
+  const close=document.createElement('button');close.type='button';close.textContent='Close';close.onclick=()=>dialog.close();
+  heading.append(name,close);
+  const content=element.cloneNode(true) as HTMLElement;content.hidden=false;
+  dialog.append(heading,content);
+  dialog.addEventListener('close',()=>dialog.remove(),{once:true});
+  dialog.addEventListener('click',event=>{if(event.target===dialog)dialog.close();});
+  document.body.append(dialog);dialog.showModal();
 }
 
 function renderImages(article:HTMLElement):void {
@@ -110,24 +126,37 @@ function renderCode(article:HTMLElement):void {
       copy.textContent='Copied';setTimeout(()=>{copy.textContent='Copy';},1300);
     };
     actions.append(copy);bar.append(label,actions);pre.replaceWith(block);block.append(bar);
+    const expand=document.createElement('button');expand.type='button';expand.textContent='Expand';
+    expand.title='Open this block in a larger view';
+    expand.onclick=()=>expandReadingElement(language.toLowerCase()==='mermaid'?'Diagram':block.classList.contains('annotated-tree-block')?'File layout':language||'Code',language.toLowerCase()==='mermaid'?block.querySelector<HTMLElement>('.diagram-preview')!:block.classList.contains('annotated-tree-block')&&!pre.hidden?pre:block.querySelector<HTMLElement>('.annotated-tree:not([hidden])')??pre);
+    actions.prepend(expand);
     if(language.toLowerCase()==='mermaid'){
       const preview=document.createElement('div');preview.className='diagram-preview';preview.textContent='Rendering diagram…';
       block.append(preview);diagramSources.set(preview,source);renderStaticDiagram(preview,source);
     }else {
+      const wrap=document.createElement('button');wrap.type='button';wrap.textContent='Wrap lines';
+      wrap.setAttribute('aria-pressed','false');wrap.title='Fit long lines within this code block';
+      wrap.onclick=()=>{const wrapped=pre.classList.toggle('wrapped');wrap.textContent=wrapped?'Keep lines':'Wrap lines';wrap.setAttribute('aria-pressed',String(wrapped));};
+      actions.insertBefore(wrap,expand);
       const entries=parseAnnotatedTree(source,language);
       if(entries){
+        wrap.hidden=true;
         block.classList.add('annotated-tree-block');label.textContent='File layout';
         const tree=document.createElement('div');tree.className='annotated-tree';
         tree.setAttribute('role','list');tree.setAttribute('aria-label','Annotated file tree');
+        const treeHead=document.createElement('div');treeHead.className='annotated-tree-head';
+        treeHead.innerHTML='<span>Path</span><span>Purpose</span>';
+        block.append(treeHead);
         for(const entry of entries){
           const row=document.createElement('div');row.className='annotated-tree-row';row.setAttribute('role','listitem');
+          row.classList.toggle('folder',entry.path.endsWith('/'));
           row.style.setProperty('--tree-depth',String(entry.depth));
           const path=document.createElement('span');path.className='annotated-tree-path';path.textContent=entry.path;
           const description=document.createElement('span');description.className='annotated-tree-description';description.textContent=entry.description;
           row.append(path,description);tree.append(row);
         }
         const original=document.createElement('button');original.type='button';original.textContent='Original';original.title='Show the exact Markdown code block';
-        original.onclick=()=>{const showOriginal=!tree.hidden;tree.hidden=showOriginal;pre.hidden=!showOriginal;original.textContent=showOriginal?'Layout':'Original';};
+        original.onclick=()=>{const showOriginal=!tree.hidden;tree.hidden=showOriginal;treeHead.hidden=showOriginal;pre.hidden=!showOriginal;wrap.hidden=!showOriginal;original.textContent=showOriginal?'Layout':'Original';};
         actions.prepend(original);pre.hidden=true;block.append(tree,pre);
       }else block.append(pre);
       if(language&&!entries)highlights.push({code,language,source});
@@ -149,6 +178,9 @@ export async function renderReading(host:HTMLElement,markdown:string):Promise<vo
   for(const table of article.querySelectorAll('table')){
     const scroll=document.createElement('div');scroll.className='reading-table';scroll.setAttribute('role','region');scroll.setAttribute('aria-label','Table');scroll.tabIndex=0;
     table.replaceWith(scroll);scroll.append(table);
+    const expand=document.createElement('button');expand.type='button';expand.className='table-expand';expand.textContent='Expand table';
+    expand.onclick=()=>expandReadingElement('Table',table);
+    scroll.prepend(expand);
   }
   host.replaceChildren(article);
   // Images, equations, syntax highlighting and diagrams are tracked separately.
