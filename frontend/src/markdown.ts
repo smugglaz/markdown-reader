@@ -10,6 +10,22 @@ export type Ast = {type: string; children?: Ast[]; position?: {start:{offset?:nu
 export const parser = unified().use(remarkParse).use(remarkGfm).use(remarkMath);
 const htmlProcessor = unified().use(remarkParse).use(remarkGfm).use(remarkMath).use(remarkRehype, {allowDangerousHtml:true}).use(rehypeStringify,{allowDangerousHtml:true});
 
+// Loading and saving compare the same source repeatedly. Retain only a few
+// successful results; cap both source text and expanded canonical JSON so a
+// long editing session or unusually dense Markdown cannot grow this cache.
+const canonicalCache=new Map<string,string>();
+const maxCanonicalEntries=8,maxCanonicalSourceChars=2*1024*1024,maxCanonicalResultChars=8*1024*1024;
+let canonicalSourceChars=0,canonicalResultChars=0;
+function rememberCanonical(source:string,result:string):void {
+  if(source.length>maxCanonicalSourceChars||result.length>maxCanonicalResultChars)return;
+  while(canonicalCache.size&&(canonicalCache.size>=maxCanonicalEntries||canonicalSourceChars+source.length>maxCanonicalSourceChars||canonicalResultChars+result.length>maxCanonicalResultChars)){
+    const oldest=canonicalCache.entries().next().value!;
+    canonicalCache.delete(oldest[0]);canonicalSourceChars-=oldest[0].length;canonicalResultChars-=oldest[1].length;
+  }
+  const previous=canonicalCache.get(source);if(previous!==undefined){canonicalSourceChars-=source.length;canonicalResultChars-=previous.length;}
+  canonicalCache.set(source,result);canonicalSourceChars+=source.length;canonicalResultChars+=result.length;
+}
+
 export function splitFrontmatter(source:string): {prefix:string;body:string} {
   const match = source.match(/^(?:\uFEFF)?---\r?\n(?:[\s\S]*?\r?\n)?(?:---|\.\.\.)(?:\r?\n|$)/);
   return match ? {prefix:match[0],body:source.slice(match[0].length)} : {prefix:'',body:source};
@@ -21,8 +37,22 @@ export function rawHtml(source:string):string {
 
 /** Compare meaning, allowing changes in Markdown delimiters and list spacing. */
 export function canonical(source:string):string {
-  const {prefix,body} = splitFrontmatter(source.replace(/\r\n/g,'\n'));
-  const tree=parser.parse(body) as Ast;
+  source=source.replace(/\r\n/g,'\n');
+  const cached=canonicalCache.get(source);
+  if(cached!==undefined){canonicalCache.delete(source);canonicalCache.set(source,cached);return cached;}
+  const {prefix,body} = splitFrontmatter(source);
+  const result=canonicalTree(prefix,parser.parse(body) as Ast);
+  rememberCanonical(source,result);return result;
+}
+
+/** Reuse the same pre-transform remark tree already parsed for the editor. */
+export function primeCanonical(source:string,tree:Ast):void {
+  // CRLF inside protected raw HTML requires the normal normalized-source parse.
+  if(source.includes("\r"))return;
+  rememberCanonical(source,canonicalTree(splitFrontmatter(source).prefix,tree));
+}
+
+function canonicalTree(prefix:string,tree:Ast):string {
   const definitions=new Map<string,Ast>();
   function scan(node:Ast) { if(node.type==='definition'&&!definitions.has(String(node.identifier))) definitions.set(String(node.identifier),node); node.children?.forEach(scan); }
   scan(tree);

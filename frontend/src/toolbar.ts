@@ -6,7 +6,7 @@ import {deleteColumn, deleteRow} from '@milkdown/kit/prose/tables';
 import {toggleStrongCommand, toggleEmphasisCommand, toggleInlineCodeCommand, toggleLinkCommand, createCodeBlockCommand, wrapInBulletListCommand, wrapInOrderedListCommand, wrapInBlockquoteCommand, insertHrCommand, insertImageCommand} from '@milkdown/kit/preset/commonmark';
 import {toggleStrikethroughCommand, insertTableCommand, addRowAfterCommand, addColAfterCommand} from '@milkdown/kit/preset/gfm';
 import {editSource} from './views';
-import {chooseImage} from './bridge';
+import {chooseImage,context} from './bridge';
 
 // Local SVGs share a single optical size and stroke. No icon font or network dependency.
 const paths: Record<string,string> = {
@@ -83,7 +83,7 @@ export function createFormattingToolbar(root:HTMLElement, getView:()=>EditorView
   button(lists,'Bullet list','bullet',()=>list('bullet'),'bullet');button(lists,'Numbered list','ordered',()=>list('ordered'),'ordered');button(lists,'Task list','task',()=>list('task'),'task');
   const insertGroup=group('Insert');const insert=menu(insertGroup,'Insert','plus');
   item(insert.panel,'Table',()=>command(insertTableCommand.key,{row:3,col:3}));
-  item(insert.panel,'Image from file…',async()=>{const docView=getView();const src=await chooseImage();if(src&&getView()===docView)command(insertImageCommand.key,{src,alt:''});});
+  item(insert.panel,'Image from file…',async()=>{const docView=getView(),documentId=context.documentId,revision=context.revision;const src=await chooseImage();if(src&&getView()===docView&&documentId===context.documentId&&revision===context.revision)command(insertImageCommand.key,{src,alt:''});});
   item(insert.panel,'Image from URL…',()=>editSource('Insert image','https://',src=>command(insertImageCommand.key,{src,alt:''}),{multiline:false,label:'Image URL'}));
   item(insert.panel,'Blockquote',()=>command(wrapInBlockquoteCommand.key));
   item(insert.panel,'Horizontal rule',()=>command(insertHrCommand.key));

@@ -11,6 +11,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from native_smoke import NativeSmoke, PROJECT, GLib, sha
@@ -34,7 +35,19 @@ class NativeFeatures(NativeSmoke):
             if edit:
                 self.require(doc.editable, f"{name} is not editable: {doc.edit_reason}")
                 self.window.mode_changed("edit")
-            self.delay(lambda: done(doc), 180)
+                deadline = time.monotonic() + 45
+                def inspected(state):
+                    if state["mode"] == "edit" and not state["busy"]:
+                        done(doc)
+                        return
+                    self.require(state["editable"], f"{name} failed the editing preservation gate")
+                    self.require(time.monotonic() < deadline, f"{name} editor preparation timed out")
+                    self.delay(check, 25)
+                def check():
+                    self.evaluate(doc, "(()=>{const s=window.reader.inspect();return {mode:s.mode,busy:!!s.busy,editable:s.editable};})()", inspected)
+                check()
+            else:
+                self.delay(lambda: done(doc), 180)
         self.wait_for(lambda: doc.loaded, ready, f"{name} fixture")
 
     def act(self, doc, body, done):

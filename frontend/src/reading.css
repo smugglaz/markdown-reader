@@ -1,0 +1,32 @@
+/* Semantic reading DOM shares the editor's type scale, without editor wrappers. */
+.fallback-document.reading-document{white-space:normal;--crepe-font-code:"SFMono-Regular",Consolas,"Liberation Mono",monospace}
+.reading-document :is(ul,ol){padding-left:1.8em}
+.reading-document li{padding-left:.2em;margin:.15em 0}
+.reading-document li::marker{color:var(--text)}
+.reading-document li>p{margin:0 0 .45em}
+.reading-document li>:is(ul,ol){margin:.2em 0 .1em}
+.reading-document .task-list-item{list-style:none}
+.reading-document .reading-task-marker{display:inline-block;width:1.25em;margin-left:-1.55em;margin-right:.3em;color:var(--muted);line-height:1;white-space:nowrap;user-select:none;vertical-align:baseline}
+.reading-document .reading-task-marker[aria-checked=true]{color:var(--accent)}
+.reading-document .reading-table{max-width:100%;overflow-x:auto;margin:1.5em 0}
+.reading-document .reading-table:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.reading-document .reading-table table{table-layout:auto;margin:0}
+.reading-document .code-block pre{margin:0;white-space:pre;overflow-x:auto;max-width:100%}
+.reading-document .code-block pre code{white-space:inherit}
+.reading-document .reading-math{white-space:normal}
+.reading-document .reading-math.render-error{white-space:pre-wrap}
+.reading-document blockquote.reading-callout{border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:7px;background:var(--accent-wash);color:var(--text);padding:13px 18px}
+.reading-document .reading-callout>.callout-label{display:block;line-height:1.5}
+.reading-document .reading-callout-content>:first-child{margin-top:.6em}
+.reading-document .reading-callout-content>:last-child{margin-bottom:0}
+.reading-document .footnotes{margin-top:2.5em;padding-top:1em;border-top:1px solid var(--line);font-size:.85em}
+.reading-document .footnotes h2{font-size:1em;margin:0 0 .8em;letter-spacing:0}
+.reading-document .footnotes p{margin-bottom:.5em}
+.reading-document sup>a{font-size:.85em;text-decoration:none}
+@media print{
+  .reading-document .reading-table{overflow:visible}
+  .reading-document .reading-table table{table-layout:fixed}
+  .reading-document .code-block pre{white-space:pre-wrap;overflow-wrap:anywhere;overflow:visible}
+  .reading-document .reading-callout-content[hidden]{display:block!important}
+  .reading-document .reading-callout>.callout-label{color:var(--text)}
+}

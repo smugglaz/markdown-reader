@@ -18,6 +18,7 @@ class ReloadTests(unittest.TestCase):
             id="example", name="reader-test.md", path=self.snapshot.path,
             snapshot=self.snapshot, text=self.snapshot.text, closed=False,
             saving=False, dirty=False, conflict=False, revision=7,
+            mode_busy=False, reload_deferred=False, pending={},
             read_generation=0, edit_serial=0, retry_count=3,
             banner=SimpleNamespace(set_visible=Mock()),
             window=SimpleNamespace(update_controls=Mock()),
@@ -28,6 +29,9 @@ class ReloadTests(unittest.TestCase):
         self.worker = patch("markdown_reader.app.job", new=lambda function, done: self.jobs.append((function, done)))
         self.worker.start()
         self.addCleanup(self.worker.stop)
+        self.doc.reload = lambda: Document.reload(self.doc)
+        self.doc.window.current = self.doc
+        self.doc.window.status = Mock()
 
     def snapshot_with(self, text="Agent update", etag="new-etag", digest="new-digest"):
         return DiskSnapshot(self.snapshot.path, self.snapshot.canonical_path, text, etag, digest)
@@ -46,6 +50,63 @@ class ReloadTests(unittest.TestCase):
         self.requests = []
         self.doc.request = lambda method, done, *extra: self.requests.append((method, done))
         self.doc.window.sync_edits = lambda doc, done: ReaderWindow.sync_edits(self.doc.window, doc, done)
+
+    def notify_mode(self, mode="read", busy=False, revision=7):
+        message = {"type": "mode", "documentId": self.doc.id, "revision": revision,
+                   "mode": mode, "busy": busy, "editable": True}
+        Document._message(self.doc, None, SimpleNamespace(to_string=lambda: json.dumps(message)))
+
+    def test_mode_completion_retries_coalesced_disk_updates_once(self):
+        self.enable_editor_sync()
+        self.doc.mode_busy = True
+        for index in range(2):
+            Document.reload(self.doc)
+            self.jobs[index][1](self.snapshot_with(text=f"Deferred update {index}"), None)
+        self.assertTrue(self.doc.reload_deferred)
+        self.assertEqual(self.requests, [])
+        self.assertEqual(self.doc.snapshot, self.snapshot)
+        self.doc.load_frontend.assert_not_called()
+        self.notify_mode("edit", busy=True)
+        self.assertEqual(len(self.jobs), 2)
+        self.notify_mode()
+        self.assertFalse(self.doc.reload_deferred)
+        self.assertEqual(len(self.jobs), 3)
+        self.notify_mode()
+        self.assertEqual(len(self.jobs), 3)
+        self.jobs[2][1](self.snapshot_with(text="Latest disk version", etag="latest"), None)
+        self.assertEqual(self.doc.text, "Latest disk version")
+        self.assertEqual(self.doc.snapshot.etag, "latest")
+        self.assertEqual(self.doc.revision, 8)
+        self.doc.load_frontend.assert_called_once()
+
+    def test_deferred_refresh_preserves_edits_flushed_by_mode_transition(self):
+        self.enable_editor_sync()
+        self.doc.mode_busy = True
+        Document.reload(self.doc)
+        self.jobs[0][1](self.snapshot_with(), None)
+        self.notify_dirty("User edit flushed before Read completes")
+        self.notify_mode()
+        self.jobs[1][1](self.snapshot_with(text="Newest agent update"), None)
+        self.assertEqual(self.doc.text, "User edit flushed before Read completes")
+        self.assertTrue(self.doc.dirty)
+        self.assertTrue(self.doc.conflict)
+        self.assertEqual(self.doc.snapshot, self.snapshot)
+        self.assertEqual(self.doc.revision, 7)
+        self.doc.load_frontend.assert_not_called()
+
+    def test_obsolete_or_closed_mode_completion_cannot_resume_deferred_refresh(self):
+        self.enable_editor_sync()
+        self.doc.mode_busy = True
+        Document.reload(self.doc)
+        self.jobs[0][1](self.snapshot_with(), None)
+        self.notify_mode(revision=6)
+        self.assertTrue(self.doc.reload_deferred)
+        self.assertTrue(self.doc.mode_busy)
+        self.assertEqual(len(self.jobs), 1)
+        self.doc.closed = True
+        self.notify_mode()
+        self.assertEqual(len(self.jobs), 1)
+        self.doc.load_frontend.assert_not_called()
 
     def test_user_edit_during_async_read_is_preserved_as_conflict(self):
         Document.reload(self.doc)

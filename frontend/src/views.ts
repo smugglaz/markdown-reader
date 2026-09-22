@@ -1,6 +1,4 @@
-import DOMPurify from 'dompurify';
 import katex from 'katex';
-import mermaid from 'mermaid';
 import hljs from 'highlight.js/lib/common';
 import { $nodeSchema, $remark, $view } from '@milkdown/kit/utils';
 import { codeBlockSchema,imageSchema,blockquoteSchema } from '@milkdown/kit/preset/commonmark';
@@ -8,34 +6,17 @@ import type { EditorView } from '@milkdown/kit/prose/view';
 import type { Node } from '@milkdown/kit/prose/model';
 import remarkMath from 'remark-math';
 import {protectionPlugin,rawHtml} from './markdown';
-import {resolveAsset,send} from './bridge';
+import {context,send} from './bridge';
+import {renderIssues,track,safeHtml,resolveImages,displayImage,diagramSvg,isDiagramDark,subscribeDiagramTheme,escapeHtml} from './rendering';
+export {renderPending,renderIssues,initializeMermaid,renderStaticDiagram,track,safeHtml,resolveImages,escapeHtml} from './rendering';
 
-export const renderPending=new Set<Promise<unknown>>();
-export const renderIssues=new Map<HTMLElement,string>();
 export const modeListeners=new Set<()=>void>();
-let editing=false,diagramCounter=0;
-export function setViewMode(value:boolean){editing=value;modeListeners.forEach(fn=>fn());}
-export function initializeMermaid(dark:boolean){mermaid.initialize({startOnLoad:false,securityLevel:'strict',theme:dark?'dark':'default',suppressErrorRendering:true,fontFamily:'system-ui, sans-serif',htmlLabels:false,flowchart:{htmlLabels:false},maxTextSize:150000});}
-export function renderStaticDiagram(element:HTMLElement,source:string){return track(mermaid.render(`reader-diagram-${++diagramCounter}`,source).then(({svg})=>{element.innerHTML=DOMPurify.sanitize(svg,{USE_PROFILES:{svg:true,svgFilters:true},FORBID_TAGS:['script','foreignObject'],FORBID_ATTR:['onclick','onload']});}).catch(error=>{element.textContent=source;renderIssues.set(element,`Diagram could not be rendered: ${String(error).split('\n')[0]}`);}));}
-export function track<T>(promise:Promise<T>):Promise<T>{renderPending.add(promise);promise.finally(()=>renderPending.delete(promise));return promise;}
-export function safeHtml(raw:string):string{return DOMPurify.sanitize(raw,{USE_PROFILES:{html:true,svg:true,svgFilters:true,mathMl:true},FORBID_TAGS:['style','script','iframe','object','embed','form','input','textarea','button','video','audio','link','meta'],FORBID_ATTR:['style','srcdoc','srcset'],ALLOW_DATA_ATTR:false});}
-
-export async function resolveImages(root:HTMLElement){
-  await Promise.all(Array.from(root.querySelectorAll('img')).map(async img=>{
-    const original=img.getAttribute('src')??'';img.removeAttribute('src');
-    await displayImage(img,original);
-  }));
-}
-
-async function displayImage(img:HTMLImageElement,src:string){
-  img.referrerPolicy='no-referrer';img.alt=img.alt||'Image';
-  const url=await resolveAsset(src);
-  if(url){img.src=url;img.onerror=()=>{img.classList.add('unavailable');renderIssues.set(img,`Image unavailable: ${src}`);img.title=`Image unavailable: ${src}`;};}
-  else {img.classList.add('unavailable');img.title=`Image unavailable: ${src}`;renderIssues.set(img,`Image unavailable: ${src}`);}
-}
+let editing=false;
+export function setViewMode(value:boolean){if(editing===value)return;editing=value;modeListeners.forEach(fn=>fn());}
 
 /** Source dialogs update atomic nodes without exposing the whole document as code. */
 export function editSource(title:string,value:string,onSave:(value:string)=>void,options:{multiline?:boolean;label?:string}={}) {
+  const documentId=context.documentId,revision=context.revision;
   const dialog=document.createElement('dialog');dialog.className='source-dialog';
   const form=document.createElement('form');form.method='dialog';
   const h=document.createElement('h2');h.textContent=title;
@@ -46,7 +27,7 @@ export function editSource(title:string,value:string,onSave:(value:string)=>void
   const cancel=document.createElement('button');cancel.textContent='Cancel';cancel.type='button';cancel.onclick=()=>dialog.close();
   const save=document.createElement('button');save.className='primary';save.textContent='Apply';save.type='submit';
   actions.append(cancel,save);form.append(h,label,actions);dialog.append(form);document.body.append(dialog);
-  form.onsubmit=e=>{e.preventDefault();onSave(input.value);dialog.close();};dialog.onclose=()=>dialog.remove();dialog.showModal();input.focus();
+  form.onsubmit=e=>{e.preventDefault();if(editing&&context.documentId===documentId&&context.revision===revision)onSave(input.value);dialog.close();};dialog.onclose=()=>dialog.remove();dialog.showModal();input.focus();
 }
 
 function rawNode(inline:boolean) {return $nodeSchema(inline?'reader_inline':'reader_block',()=>({
@@ -63,13 +44,20 @@ export const mathRemark=$remark('reader-math',()=>remarkMath);
 
 function protectedView(inline:boolean){return (node:Node,view:EditorView,getPos:()=>number|undefined)=>{
   let current=node;const dom=document.createElement(inline?'span':'div');dom.className=inline?'protected-inline':'protected-block';dom.contentEditable='false';
+  const syncMode=()=>{
+    const kind=String(current.attrs.kind),isMath=kind==='math'||kind==='inlineMath';
+    dom.classList.toggle('protected-editing',editing);dom.classList.toggle('editable-atom',editing&&isMath);
+    if(isMath)dom.title=editing?'Double-click to edit equation':'';
+    if(kind==='definition')dom.textContent=editing?'Reference definition · source preserved':'';
+  };
   const render=()=>{
+    for(const image of dom.querySelectorAll('img'))renderIssues.delete(image);
     dom.replaceChildren();renderIssues.delete(dom);dom.dataset.kind=current.attrs.kind;
+    dom.classList.remove('render-error','source-preserved','footnote-definition','reference-definition');dom.removeAttribute('title');dom.removeAttribute('id');
     const kind=String(current.attrs.kind),raw=String(current.attrs.raw);
     if(kind==='math'||kind==='inlineMath'){
       try {katex.render(String(current.attrs.notation),dom,{displayMode:kind==='math',throwOnError:true,trust:false,strict:'warn'});}
       catch(error){dom.textContent=raw;dom.classList.add('render-error');renderIssues.set(dom,`Equation could not be rendered: ${String(error)}`);}
-      if(editing){dom.title='Double-click to edit equation';dom.classList.add('editable-atom');}
     }else if(kind==='htmlFragment'){
       dom.innerHTML=safeHtml(rawHtml(raw)).replace(/^<p>/,'').replace(/<\/p>\n?$/,'');track(resolveImages(dom));dom.title='Embedded HTML source is preserved unchanged';
     }else if(kind==='html') {
@@ -86,7 +74,7 @@ function protectedView(inline:boolean){return (node:Node,view:EditorView,getPos:
     }else if(kind==='definition'){
       dom.classList.add('reference-definition');dom.textContent=editing?'Reference definition · source preserved':'';
     }else {dom.innerHTML=safeHtml(rawHtml(raw));track(resolveImages(dom));dom.title='Protected source';}
-    dom.classList.toggle('protected-editing',editing);
+    syncMode();
   };
   dom.ondblclick=()=>{
     if(!editing||!['math','inlineMath','footnoteDefinition'].includes(current.attrs.kind))return;
@@ -97,8 +85,8 @@ function protectedView(inline:boolean){return (node:Node,view:EditorView,getPos:
       view.dispatch(view.state.tr.setNodeMarkup(pos,undefined,{...current.attrs,raw,notation:isMath?value:current.attrs.notation}));
     });
   };
-  render();modeListeners.add(render);
-  return {dom,update(next:Node){if(next.type!==current.type)return false;current=next;render();return true},ignoreMutation:()=>true,stopEvent:()=>true,destroy(){modeListeners.delete(render);renderIssues.delete(dom)}};
+  render();modeListeners.add(syncMode);
+  return {dom,update(next:Node){if(next.type!==current.type)return false;if(next.eq(current))return true;current=next;render();return true},ignoreMutation:()=>true,stopEvent:()=>true,destroy(){modeListeners.delete(syncMode);renderIssues.delete(dom);for(const image of dom.querySelectorAll('img'))renderIssues.delete(image)}};
 };}
 export const protectedBlockView=$view(protectedBlock.node,()=>protectedView(false));
 export const protectedInlineView=$view(protectedInline.node,()=>protectedView(true));
@@ -113,6 +101,7 @@ export const imageView=$view(imageSchema.node,()=> (node,view,getPos)=>{
 
 export const codeView=$view(codeBlockSchema.node,()=> (node,view,getPos)=>{
   let current=node,generation=0;
+  let previewSource:string|undefined,previewLanguage='',previewDark=false;
   const dom=document.createElement('div');dom.className='code-block';
   const bar=document.createElement('div');bar.className='code-bar';bar.contentEditable='false';
   const label=document.createElement('span');const buttons=document.createElement('span');
@@ -123,21 +112,35 @@ export const codeView=$view(codeBlockSchema.node,()=> (node,view,getPos)=>{
   const preview=document.createElement('div');preview.className='code-preview';preview.contentEditable='false';dom.append(bar,pre,preview);
   const render=()=>{
     const language=String(current.attrs.language??''),isDiagram=language.toLowerCase()==='mermaid';
-    label.textContent=language||'Code';edit.hidden=!editing||!isDiagram;pre.hidden=!editing||isDiagram;preview.hidden=editing&&!isDiagram;renderIssues.delete(dom);
+    label.textContent=language||'Code';edit.hidden=!editing||!isDiagram;pre.hidden=!editing||isDiagram;preview.hidden=editing&&!isDiagram;
+    if(!isDiagram&&editing){
+      if(previewLanguage.toLowerCase()==='mermaid'){generation++;previewSource=undefined;previewLanguage=language;renderIssues.delete(dom);}
+      return;
+    }
+    const source=current.textContent;
+    if(previewSource===source&&previewLanguage===language&&(!isDiagram||previewDark===isDiagramDark()))return;
+    previewSource=source;previewLanguage=language;previewDark=isDiagramDark();renderIssues.delete(dom);
+    const key=++generation;
     if(isDiagram){
-      const key=++generation;preview.className='code-preview diagram-preview';preview.textContent='Rendering diagram…';
-      const promise=mermaid.render(`reader-diagram-${++diagramCounter}`,current.textContent).then(({svg})=>{if(key===generation){preview.innerHTML=DOMPurify.sanitize(svg,{USE_PROFILES:{svg:true,svgFilters:true},FORBID_TAGS:['script','foreignObject'],FORBID_ATTR:['onclick','onload']});}}).catch(error=>{if(key===generation){preview.textContent=current.textContent;preview.classList.add('render-error');renderIssues.set(dom,`Diagram could not be rendered: ${String(error).split('\n')[0]}`);}});track(promise);
-    }else if(!editing){preview.className='code-preview';const output=document.createElement('pre');const highlighted=document.createElement('code');try{highlighted.innerHTML=language&&hljs.getLanguage(language)?hljs.highlight(current.textContent,{language,ignoreIllegals:true}).value:escapeHtml(current.textContent);}catch{highlighted.textContent=current.textContent;}output.append(highlighted);preview.replaceChildren(output);}
+      preview.className='code-preview diagram-preview';preview.textContent='Rendering diagram…';
+      const promise=diagramSvg(source).then(svg=>{if(key===generation)preview.innerHTML=svg;}).catch(error=>{if(key===generation){preview.textContent=source;preview.classList.add('render-error');renderIssues.set(dom,`Diagram could not be rendered: ${String(error).split('\n')[0]}`);}});track(promise);
+    }else {preview.className='code-preview';const output=document.createElement('pre');const highlighted=document.createElement('code');try{highlighted.innerHTML=language&&hljs.getLanguage(language)?hljs.highlight(source,{language,ignoreIllegals:true}).value:escapeHtml(source);}catch{highlighted.textContent=source;}output.append(highlighted);preview.replaceChildren(output);}
   };
-  render();modeListeners.add(render);
-  return {dom,contentDOM:code,update(next){if(next.type!==current.type)return false;const changed=!next.eq(current);current=next;if(changed)render();return true},ignoreMutation:mutation=>!code.contains(mutation.target),stopEvent:event=>bar.contains(event.target as globalThis.Node)||preview.contains(event.target as globalThis.Node),destroy(){modeListeners.delete(render);renderIssues.delete(dom);generation++;}};
+  const refreshDiagram=()=>{if(String(current.attrs.language??'').toLowerCase()==='mermaid')render();};
+  render();modeListeners.add(render);const unsubscribeDiagramTheme=subscribeDiagramTheme(refreshDiagram);
+  return {dom,contentDOM:code,update(next){if(next.type!==current.type)return false;const changed=!next.eq(current);current=next;if(changed)render();return true},ignoreMutation:mutation=>!code.contains(mutation.target),stopEvent:event=>bar.contains(event.target as globalThis.Node)||preview.contains(event.target as globalThis.Node),destroy(){modeListeners.delete(render);unsubscribeDiagramTheme();renderIssues.delete(dom);generation++;}};
 });
 
 export const quoteView=$view(blockquoteSchema.node,()=> (node)=>{
-  let current=node;const dom=document.createElement('blockquote');const label=document.createElement('button');label.type='button';label.className='callout-label';label.contentEditable='false';const content=document.createElement('div');dom.append(label,content);let folded=false;
-  const render=()=>{const match=current.firstChild?.textContent.match(/^\[!([^\]]+)\]([+-]?)(?:[ \t]+([^\n]+))?/);dom.classList.toggle('callout',!!match);label.hidden=!match;dom.classList.toggle('callout-reading',!editing);if(match){dom.dataset.callout=match[1].toLowerCase();label.textContent=`${match[2]?(folded?'▸ ':'▾ '):''}${match[3]||match[1].charAt(0).toUpperCase()+match[1].slice(1).toLowerCase()}`;label.disabled=!match[2];content.hidden=!editing&&folded;}else content.hidden=false;};
-  const initial=current.firstChild?.textContent.match(/^\[![^\]]+\](-)/);folded=!!initial;label.onclick=()=>{folded=!folded;render();};render();modeListeners.add(render);
-  return {dom,contentDOM:content,update(next){if(next.type!==current.type)return false;current=next;render();return true},ignoreMutation:mutation=>!content.contains(mutation.target),stopEvent:event=>label.contains(event.target as globalThis.Node),destroy(){modeListeners.delete(render)}};
+  let current=node;const dom=document.createElement('blockquote');const label=document.createElement('button');label.type='button';label.className='callout-label';label.contentEditable='false';const content=document.createElement('div');dom.append(label,content);let folded=false,foldingMarker='';
+  const render=()=>{
+    const match=current.firstChild?.textContent.match(/^\[!([^\]]+)\]([+-]?)(?:[ \t]+([^\n]+))?/),nextMarker=match?.[2]??'';
+    // Preserve a reader's fold choice while the marker is unchanged, but adopt
+    // a changed marker's default when an agent replaces this reused NodeView.
+    if(nextMarker!==foldingMarker){foldingMarker=nextMarker;folded=nextMarker==='-';}
+    dom.classList.toggle('callout',!!match);label.hidden=!match;dom.classList.toggle('callout-reading',!editing);
+    if(match){dom.dataset.callout=match[1].toLowerCase();label.textContent=`${match[2]?(folded?'▸ ':'▾ '):''}${match[3]||match[1].charAt(0).toUpperCase()+match[1].slice(1).toLowerCase()}`;label.disabled=!match[2];content.hidden=!editing&&!!foldingMarker&&folded;}else content.hidden=false;
+  };
+  label.onclick=()=>{folded=!folded;render();};render();modeListeners.add(render);
+  return {dom,contentDOM:content,update(next){if(next.type!==current.type)return false;if(next.eq(current))return true;current=next;render();return true},ignoreMutation:mutation=>(mutation.type==='attributes'&&mutation.target===content&&mutation.attributeName==='hidden')||!content.contains(mutation.target),stopEvent:event=>label.contains(event.target as globalThis.Node),destroy(){modeListeners.delete(render)}};
 });
-
-export function escapeHtml(text:string){const span=document.createElement('span');span.textContent=text;return span.innerHTML;}

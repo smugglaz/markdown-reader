@@ -187,6 +187,9 @@ class Document:
         self.dirty = False
         self.conflict = False
         self.mode = "read"
+        self.requested_mode = "read"
+        self.mode_busy = False
+        self.reload_deferred = False
         self.editable = True
         self.edit_reason = None
         self.revision = 0
@@ -308,6 +311,7 @@ class Document:
                 if message.get("revision", self.revision) != self.revision:
                     return
                 self.loaded = True
+                self.mode_busy = False
                 if not self.saving:
                     self.web.set_sensitive(True)
                 self.editable = message.get("editable", True) and (not self.snapshot or self.snapshot.editable)
@@ -316,14 +320,35 @@ class Document:
                 if self.fragment:
                     self.call("scrollToHeading", self.fragment)
                     self.fragment = None
-                self.call("setMode", self.mode)
+                if not self.editable:
+                    self.requested_mode = "read"
+                self.set_mode(self.requested_mode)
                 self.window.update_controls()
-                self.window.status("Ready" if self.editable else (self.edit_reason or "Reading only"))
+                if self.window.current is self:
+                    self.window.status("Preparing editor…" if self.mode_busy else "Ready" if self.editable else (self.edit_reason or "Reading only"))
                 self.window.persist()
                 if self.recovery is not None:
                     draft = self.recovery
                     self.recovery = None
                     self.offer_recovery(draft)
+            elif kind == "mode":
+                # A mode request can import and construct the editor. Only the
+                # current revision's completion may expose editable controls.
+                next_mode = message.get("mode")
+                if next_mode not in ("read", "edit"):
+                    return
+                self.mode = next_mode
+                self.mode_busy = bool(message.get("busy", False))
+                self.editable = message.get("editable", self.editable) and (not self.snapshot or self.snapshot.editable)
+                self.edit_reason = message.get("reason")
+                if not self.mode_busy:
+                    self.requested_mode = self.mode
+                self.window.update_controls()
+                if self.window.current is self:
+                    self.window.status("Preparing editor…" if self.mode_busy else self.edit_reason or "Ready")
+                if not self.mode_busy and self.reload_deferred:
+                    self.reload_deferred = False
+                    self.reload()
             elif kind == "dirty":
                 if message.get("revision", self.revision) != self.revision:
                     return
@@ -365,11 +390,28 @@ class Document:
         if not self.ready or self.closed:
             return
         self.loaded = False
+        # Keep the user's intended mode across a new disk revision, but never
+        # let the previous editor's pending completion enable its controls.
+        if not self.mode_busy:
+            self.requested_mode = self.mode
+        self.mode = "read"
+        self.mode_busy = False
+        self.window.update_controls()
         self.call("load", {"documentId": self.id, "revision": self.revision,
                             "markdown": self.text, "editable": not self.snapshot or self.snapshot.editable,
                             "savedMarkdown": self.snapshot.text if self.snapshot else "",
                             "theme": self.window.effective_theme(), "zoom": self.window.zoom,
                             "scrollState": self.anchor, "filename": self.name})
+
+    def set_mode(self, mode):
+        if self.closed or not self.loaded or self.saving:
+            return
+        if mode == "edit" and not self.editable:
+            return
+        self.requested_mode = mode
+        self.mode_busy = self.mode_busy or mode != self.mode
+        self.call("setMode", mode)
+        self.window.update_controls()
 
     def reload(self, force=False):
         if not self.path or self.closed or self.saving:
@@ -388,6 +430,7 @@ class Document:
                 return
             self.retry_count = 0
             if self.snapshot and snapshot.digest == self.snapshot.digest and snapshot.canonical_path == self.snapshot.canonical_path:
+                self.reload_deferred = False
                 self.snapshot = snapshot
                 self.watch()
                 return
@@ -398,6 +441,7 @@ class Document:
                     if getattr(self, "loaded", False):
                         self.web.set_sensitive(True)
                     return
+                self.reload_deferred = False
                 if self.dirty and not force:
                     self.conflict = True
                     self.notice("This file changed on disk. Your unsaved edits are safe.", conflict=True)
@@ -420,6 +464,12 @@ class Document:
             # Flush WebKit's latest transaction before replacing an edit buffer.
             # Its dirty notification may still be queued when this read finishes.
             if not force and getattr(self, "loaded", False) and getattr(self, "mode", "read") == "edit":
+                if getattr(self, "mode_busy", False):
+                    # A mode transition cannot be flushed safely yet. Read
+                    # again once it completes, coalescing bursts and retaining
+                    # the ordinary version/dirty-buffer checks for fresh data.
+                    self.reload_deferred = True
+                    return
                 self.window.sync_edits(self, apply_update)
             else:
                 apply_update()
@@ -502,6 +552,7 @@ class Document:
                 self.text = draft.get("text", "")
                 self.dirty = True
                 self.mode = "edit"
+                self.requested_mode = "edit"
                 self.conflict = bool(self.snapshot and self.snapshot.digest != draft.get("base_digest"))
                 self.revision += 1
                 self.load_frontend()
@@ -543,6 +594,8 @@ class Document:
     def _terminated(self, web, reason):
         self.write_draft()
         self.loaded = False
+        self.mode_busy = False
+        self.window.update_controls()
         self.notice("The document renderer stopped. Your draft is preserved. Reopen the tab to recover it.")
 
     def _load_failed(self, web, event, uri, error):
@@ -762,16 +815,16 @@ class ReaderWindow(Adw.ApplicationWindow):
         doc = self.current
         self.syncing_controls = True
         self.mode_box.set_sensitive(bool(doc and doc.loaded))
-        self.edit_button.set_sensitive(bool(doc and doc.loaded and doc.editable))
+        self.edit_button.set_sensitive(bool(doc and doc.loaded and doc.editable and not doc.mode_busy and not doc.saving))
         self.edit_button.set_tooltip_text(doc.edit_reason if doc and not doc.editable else "Edit document (Ctrl+E)")
-        if doc and doc.mode == "edit":
+        if doc and (doc.requested_mode if doc.mode_busy else doc.mode) == "edit":
             self.edit_button.set_active(True)
         else:
             self.read_button.set_active(True)
         self.save_button.set_visible(bool(doc and (doc.mode == "edit" or doc.dirty)))
-        self.save_button.set_sensitive(bool(doc and doc.loaded and doc.editable and not doc.saving and (doc.dirty or not doc.path)))
+        self.save_button.set_sensitive(bool(doc and doc.loaded and doc.editable and not doc.saving and not doc.mode_busy and (doc.dirty or not doc.path)))
         self.title_widget.set_title(doc.name if doc else "Markdown Reader")
-        self.title_widget.set_subtitle("")
+        self.title_widget.set_subtitle("Preparing editor…" if doc and doc.mode_busy else "")
         self.title_widget.set_tooltip_text(str(doc.path) if doc and doc.path else "Unsaved document" if doc else "Markdown Reader")
         self.set_title((doc.name + " — " if doc else "") + "Markdown Reader")
         self.syncing_controls = False
@@ -780,14 +833,12 @@ class ReaderWindow(Adw.ApplicationWindow):
         if self.syncing_controls:
             return
         doc = self.current
-        if doc and doc.loaded and (mode != "edit" or doc.editable):
-            doc.mode = mode
-            doc.call("setMode", mode)
-            self.update_controls()
+        if doc and doc.loaded and not doc.saving and (mode != "edit" or (doc.editable and not doc.mode_busy)):
+            doc.set_mode(mode)
 
     def toggle_edit(self):
         if self.current:
-            self.mode_changed("read" if self.current.mode == "edit" else "edit")
+            self.mode_changed("read" if self.current.mode == "edit" or self.current.mode_busy else "edit")
 
     def show_find(self):
         if self.current:
@@ -844,6 +895,11 @@ class ReaderWindow(Adw.ApplicationWindow):
             self.save(doc, done=done)
 
     def save(self, doc, done=None):
+        if doc.mode_busy:
+            self.status("Wait for the editor to finish preparing before saving.")
+            if done:
+                done(False)
+            return
         if not doc.path:
             self.save_as(doc, done=done)
             return
@@ -915,7 +971,11 @@ class ReaderWindow(Adw.ApplicationWindow):
 
     def save_as(self, doc=None, done=None):
         doc = doc or self.current
-        if not doc or not doc.loaded or doc.saving:
+        if not doc or not doc.loaded or doc.saving or doc.mode_busy:
+            if doc and doc.mode_busy:
+                self.status("Wait for the editor to finish preparing before saving.")
+            if done:
+                done(False)
             return
         dialog = Gtk.FileDialog(title="Save Markdown As", initial_name=doc.name if doc.path else "Untitled.md")
         if doc.path:
@@ -937,7 +997,9 @@ class ReaderWindow(Adw.ApplicationWindow):
         dialog.save(self, None, chosen)
 
     def save_to(self, doc, destination, expected=None, done=None):
-        if doc.saving:
+        if doc.closed or not doc.loaded or doc.saving or doc.mode_busy:
+            if doc.mode_busy:
+                self.status("Wait for the editor to finish preparing before saving.")
             if done:
                 done(False)
             return
@@ -1132,6 +1194,10 @@ class ReaderWindow(Adw.ApplicationWindow):
 
     def sync_edits(self, doc, done):
         """Flush the editor before decisions that can destroy an unsaved buffer."""
+        if getattr(doc, "mode_busy", False):
+            self.status("Wait for the editor to finish preparing, or switch to Read.")
+            done(False)
+            return
         doc.web.set_sensitive(False)
         revision, read_generation = doc.revision, doc.read_generation
         if not doc.loaded or not doc.editable:
@@ -1240,6 +1306,6 @@ class ReaderWindow(Adw.ApplicationWindow):
 
     def about(self):
         dialog = Adw.AboutDialog(application_name="Markdown Reader", application_icon=APP_ID,
-            version="0.1.0", developer_name="Built locally for Gibreel", license_type=Gtk.License.MIT_X11,
+            version="0.1.0", developer_name="Codex by OpenAI", license_type=Gtk.License.MIT_X11,
             comments="A quiet place to read and edit your Markdown documents.\nGTK · WebKit · Milkdown · KaTeX · Mermaid")
         dialog.present(self)

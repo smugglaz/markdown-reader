@@ -4,8 +4,15 @@
 tested this application at the repository owner's request.
 
 A free, local Markdown document reader for Ubuntu/GNOME. Documents stay in their
-original folders. A native GTK window contains a bundled Milkdown editor: Node is
-used to build the frontend, never to run the installed application.
+original folders. A native GTK window renders the document in Read mode without
+loading or constructing the Milkdown editor. The bundled editor loads when you
+choose Edit. Node is used to build the frontend, never to run the installed app.
+
+The first Edit request prepares the editor and checks that it can preserve the
+document. The native controls show “Preparing editor…” and block saving until
+preparation finishes. Returning to Read shows unsaved edits; switching back to
+Edit retains the same editor, document model, and Undo/Redo history. Save retains
+the document-preservation and external-change checks.
 
 ## Build and launch
 
@@ -82,17 +89,29 @@ Actual desktop integration checks (run in a graphical desktop session):
 /usr/bin/python3 tests/native_smoke.py --output work/native-check
 /usr/bin/python3 tests/native_features.py --output work/native-features
 /usr/bin/python3 tests/native_design.py --output work/native-design
+/usr/bin/python3 tests/native_performance_correctness.py --output work/performance-correctness
+/usr/bin/python3 tests/native_read_first.py --output work/native-read-first
+/usr/bin/python3 tests/native_overflow.py --output work/native-overflow
+/usr/bin/python3 tests/native_performance.py --output work/performance --sizes ordinary --wait-active
 ```
 
 These checks use disposable fixtures and open this project's README without
 changing it. Set `MR_TEST_DOCUMENT=/absolute/path/example.md` to also check a
 different existing document. Test outputs and recovery state stay under `work/`.
+Keep the performance test window in front: GNOME can throttle background paint
+callbacks. Timings record foreground state and latency targets; `--enforce`
+makes missed targets fail the run. A normal timing run reports measurements
+without asserting that every target passed.
 
 ## Behaviour and verification
 
 See [supported syntax](docs/supported-syntax.md), [privacy and data safety](docs/privacy.md),
 and [verification status](docs/verification.md) for native runtime test results,
 PDF checks, and the limits of automated interaction checks.
+See [performance evidence](docs/performance.md) for measured responsiveness,
+the benchmark procedure, and remaining delays. The measured 100 KB foreground
+run opened in 1,449 ms; first entry into Edit took 1,790 ms. Editor preparation
+is deferred, and not all latency targets have been met.
 
 The project is MIT licensed. Third-party components retain their own licenses;
 the frontend build includes dependency notices with its distributable assets.

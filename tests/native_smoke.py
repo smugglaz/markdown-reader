@@ -173,6 +173,34 @@ class NativeSmoke:
             return GLib.SOURCE_CONTINUE
         GLib.timeout_add(100, tick)
 
+    def wait_mode(self, doc, target, then, timeout=45):
+        """Wait for the native acknowledgement and the corresponding visible DOM."""
+        deadline = time.monotonic() + timeout
+
+        @self.guard
+        def retry():
+            self.require(time.monotonic() < deadline,
+                         f"Timed out waiting for {target} mode: loaded={doc.loaded}, "
+                         f"mode={doc.mode}, busy={doc.mode_busy}, reason={doc.edit_reason}")
+            if doc.loaded and doc.mode == target and not doc.mode_busy:
+                self.evaluate(doc, """(()=>{const state=window.reader.inspect();return {
+                    mode:state.mode,busy:!!state.busy,editorReady:!!state.editorReady,
+                    editor:!!document.querySelector('#editor .ProseMirror'),
+                    reading:!!document.querySelector('#editor .reading-document')};})()""", inspected)
+            else:
+                GLib.timeout_add(75, retry)
+            return GLib.SOURCE_REMOVE
+
+        def inspected(state):
+            visible = state["editor"] and state["editorReady"] if target == "edit" else state["reading"] and not state["editor"]
+            if (doc.loaded and doc.mode == target and not doc.mode_busy
+                    and state["mode"] == target and not state["busy"] and visible):
+                then()
+            else:
+                GLib.timeout_add(75, retry)
+
+        retry()
+
     def delay(self, then, milliseconds=300):
         GLib.timeout_add(milliseconds, self.guard(lambda: (then(), GLib.SOURCE_REMOVE)[1]))
 
@@ -218,7 +246,13 @@ class NativeSmoke:
                                                "issues": self.doc.issues})
         self.require(self.doc.mode == "read", "Documents must open in reading mode")
         self.require(sha(self.document_path) == self.initial_hash, "Reading modified the original file")
-        self.delay(self.inspect_ready_rendering, 500)
+        # Reading deliberately appears before optional renderers finish. Wait
+        # on the application's real readiness barrier, not an arbitrary delay.
+        def rendered(message):
+            self.doc.call("exportFinished")
+            self.require(not message.get("issues"), f"Rendering failed: {message.get('issues')}")
+            self.inspect_ready_rendering()
+        self.doc.request("prepareExport", self.guard(rendered))
 
     def inspect_ready_rendering(self):
         expression = """({
@@ -350,6 +384,9 @@ class NativeSmoke:
     def fidelity_loaded(self):
         self.require(self.fidelity_doc.editable, f"Comprehensive document cannot be visually edited: {self.fidelity_doc.edit_reason}")
         self.window.mode_changed("edit")
+        self.wait_mode(self.fidelity_doc, "edit", self.insert_fidelity_edit)
+
+    def insert_fidelity_edit(self):
         self.fidelity_doc.call("testInsertText", " Fidelity edit retained.")
         self.wait_for(lambda: self.fidelity_doc.dirty, self.capture_editor, "actual comprehensive visual edit")
 
@@ -373,8 +410,8 @@ class NativeSmoke:
     def edit_loaded(self):
         self.require(self.edit_doc.editable, f"Simple Markdown cannot be edited: {self.edit_doc.edit_reason}")
         self.window.mode_changed("edit")
-        self.require(self.edit_doc.mode == "edit", "Native edit-mode switch failed")
-        self.delay(lambda: self.evaluate(self.edit_doc, "typeof window.reader.testInsertText", self.edit_facade_checked))
+        self.wait_mode(self.edit_doc, "edit", lambda: self.evaluate(
+            self.edit_doc, "typeof window.reader.testInsertText", self.edit_facade_checked))
 
     def edit_facade_checked(self, facade):
         self.require(facade == "function", "Frontend testInsertText facade is unavailable")
@@ -413,6 +450,9 @@ class NativeSmoke:
 
     def refreshed(self):
         self.record("Native directory watcher detects atomic file replacement")
+        self.wait_mode(self.edit_doc, "edit", self.insert_conflicting_edit)
+
+    def insert_conflicting_edit(self):
         self.edit_doc.call("testInsertText", " Unsaved local change.")
         self.wait_for(lambda: self.edit_doc.dirty, self.create_conflict, "unsaved local change")
 
